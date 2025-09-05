@@ -4,7 +4,6 @@ from p2pd import *
 
 DB_NAME = "monitor.sqlite3"
 
-
 #####################################################################################
 SERVICE_SCHEMA = ("type", "af", "proto", "ip", "port", "fallback_id", "last_online")
 STUN_MAP_TYPE = 1
@@ -12,6 +11,53 @@ STUN_CHANGE_TYPE = 2
 MQTT_TYPE = 3
 TURN_TYPE = 4
 NTP_TYPE = 5
+
+#####################################################################################
+# groups .. group(s) ... fields inc list of fqns associated with it (maybe be blank)
+# type * af * proto * group_len = ...
+TEST_DATA = [
+    [
+        [
+            ["stun1.p2pd.net"],
+            STUN_MAP_TYPE, V4, SOCK_DGRAM, "158.69.27.176", 3478
+        ]
+    ],
+    [
+        [
+            ["stun1.p2pd.net"],
+            STUN_MAP_TYPE, V6, SOCK_DGRAM, "2607:5300:60:80b0::1", 3478
+        ]
+    ],
+    [
+        [
+            ["stun1.p2pd.net"],
+            STUN_MAP_TYPE, V4, SOCK_STREAM, "158.69.27.176", 3478
+        ]
+    ],
+    [
+        [
+            ["stun1.p2pd.net"],
+            STUN_MAP_TYPE, V6, SOCK_STREAM, "2607:5300:60:80b0::1", 3478
+        ]
+    ],
+    [
+        [
+            ["stun.gmx.de"],
+            STUN_CHANGE_TYPE, V4, SOCK_DGRAM, "212.227.67.33", 3478
+        ],
+        [
+            ["stun.gmx.de"],
+            STUN_CHANGE_TYPE, V4, SOCK_DGRAM, "212.227.67.34", 3479
+        ],
+    ],
+]
+
+
+
+async def delete_all_data(db):
+    for table in ("services", "aliases"):
+        sql = "DELETE FROM %s;" % (table)
+        await db.execute(sql)
 
 async def insert_service(db, service_type, af, proto, ip, port, fallback_id=None):
     # Parameterized insert
@@ -39,6 +85,7 @@ async def is_unique_service(db, service_type, af, proto, ip, port):
         return not len(rows)
     
 # Validation here.
+# Don't expose fallback_id directly in public APIs -- grouped service API though.
 async def record_service(db, service_type, af, proto, ip, port, fallback_id=None):
     if not in_range(service_type, [1, 5]):
         raise Exception("Invalid service type for record")
@@ -66,15 +113,38 @@ async def record_service(db, service_type, af, proto, ip, port, fallback_id=None
     ret = await insert_service(db, service_type, af, proto, ip, port, fallback_id)
     print(ret)
 
+async def insert_test_data(db):
+    for groups in TEST_DATA:
+        fallback_id = None
+        for group in groups:
+            insert_id = await record_service(
+                db=db,
+                service_type=group[1],
+                af=group[2],
+                proto=group[3],
+                ip=group[4],
+                port=group[5],
+                fallback_id=fallback_id
+            )
+
+            fallback_id  = insert_id
+
 async def main():
     print("main")
     print()
     print(int(V4)) # 2
     print(int(V6)) # 10
+    print(int(TCP))
+    print(int(UDP))
+
 
 
     params = (1, V4, 1, "127.0.0.1", 80, None)
     async with aiosqlite.connect(DB_NAME) as db:
+        await delete_all_data(db)
+        await insert_test_data(db)
+        await db.commit()
+        return
 
         await record_service(db, 1, V4, TCP, "127.0.0.1", 80, None)
 
