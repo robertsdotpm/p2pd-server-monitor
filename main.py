@@ -78,89 +78,75 @@ async def is_unique_service(db, service_type, af, proto, ip, port):
         rows = await cursor.fetchall()
         return not len(rows)
     
-async def validate_stun_server(af, host, port, proto, interface, mode, timeout, recurse=True):
-    # Attempt to resolve STUN server address.
-    dest = await Address(host, port, interface)
-    dest = dest.select_ip(af)
-    
-    """
-    Some 'public' STUN servers like to point to private
-    addresses. This could be dangerous.
-    """
-    ipr = IPRange(dest.tup[0], cidr=af_to_cidr(af))
-    if ipr.is_private:
-        log(f"{af} {host} {recurse} is private")
-        return None
-
-    # New pipe used for the req.
+async def validate_stun_server(af, ip, port, proto, nic, mode, cip=None, cport=None):
+    # New client used for the req.
     stun_client = STUNClient(
         af=af,
-        dest=dest.tup,
-        nic=interface,
+        dest=(ip, port),
+        nic=nic,
         proto=proto,
         mode=mode
     )
 
-    try:
-        reply = await stun_client.get_stun_reply()
-    except:
-        log_exception()
-        log(f"{af} {host} {proto} {mode} get reply {recurse} none")
-        return None
+    # Lowever level -- get STUN reply.
+    reply = await stun_client.get_stun_reply()
     
+    # Validate the reply.
     reply = validate_stun_reply(reply, mode)
     if reply is None:
-        return
-    # Cleanup.
+        raise Exception("Invalid stun reply.")
+    
+    # Cleanup the pipe for the request.
     if hasattr(reply, "pipe"):
         await reply.pipe.close()  
 
-    # Validate change server reply.
-    ctup = (None, None)
+    # Specific logic to validate RFC3489 change IP/ports.
     if mode == RFC3489:
-        if recurse and hasattr(reply, "ctup"):
-            try:
-                # Change IP different from reply IP.
-                if reply.stup[0] == reply.ctup[0]:
-                    log(f'ctup bad {to_h(reply.txn_id)}: bad {reply.ctup[0]} 1')
-                    return None
-                
-                # Change port different from reply port.
-                if reply.stup[1] == reply.ctup[1]:
-                    log(f'ctup bad {to_h(reply.txn_id)}: bad {reply.ctup[0]} 2')
-                    return None
-
-
-                creply = await validate_stun_server(
-                    af,
-                    reply.ctup[0],
-                    reply.ctup[1],
-                    proto,
-
-                    interface,
-                    mode,
-                    timeout,
-                    recurse=False # Avoid infinite loop.
-                )
-            except:
-                log(f"vaid stun recurse failed {af} {host}")
-                log_exception()
-            if creply is not None:
-                ctup = reply.ctup
-            else:
-                log(f"{af} {host} {reply.ctup} ctup get reply {recurse} none")
+        if not hasattr(reply, "ctup"):
+            raise Exception("no ctup in reply.")
+            
+        # Change IP different from reply IP.
+        if IPR(ip, af) == IPR(reply.ctup[0], af):
+            raise Exception("change IP was the same")
+        
+        # Validate change IP is as expected.
+        if cip is not None:
+            if IPR(reply.ctup[0], af) != IPR(cip, af):
+                raise Exception("Change IP not as expected.")
+        
+        # Change port different from reply port.
+        if port == reply.ctup[1]:
+            raise Exception("change port is same as source port")
+        
+        # Validate cport is as expected.
+        if cport is not None:
+            if cport != reply.ctup[1]:
+                raise Exception("change port not as expected.")
 
     # Return all the gathered data.
-    return [
-        af,
-        host,
-        dest.tup[0],
-        dest.tup[1], 
-        ctup[0],
-        ctup[1],
-        proto,
-        mode
+    return reply
+
+# So with RFC 3489 there's actualoly 4 STUN servers to check:
+async def validate_rfc3489_stun_server(af, proto, nic, primary_tup, secondary_tup):
+    infos = [
+        (primary_tup[0], primary_tup[1], secondary_tup[0], primary_tup[2]),
+        (primary_tup[0], primary_tup[2], secondary_tup[0], primary_tup[1]),
+        (secondary_tup[0], secondary_tup[1], primary_tup[0], secondary_tup[2]),
+        (secondary_tup[0], secondary_tup[2], primary_tup[0], secondary_tup[1]),
     ]
+
+    for info in infos:
+        dest_ip, dest_port, cip, cport = info
+        await validate_stun_server(
+            af, 
+            dest_ip,
+            dest_port,
+            proto,
+            nic,
+            RFC3489,
+            cip=cip,
+            cport=cport
+        )
     
 # Validation here.
 # Don't expose fallback_id directly in public APIs -- grouped service API though.
@@ -186,6 +172,14 @@ async def record_service(db, nic, service_type, af, proto, ip, port, fallback_id
     is_unq = await is_unique_service(db, service_type, af, proto, ip, port)
     if not is_unq:
         raise Exception("service already inserted.")
+
+    """
+    Some 'public' STUN servers like to point to private
+    addresses. This could be dangerous.
+    """
+    ipr = IPRange(ip, cidr=af_to_cidr(af))
+    if ipr.is_private:
+        raise Exception("ip is private for record service")
     
     # For stun validate the server type.
     if service_type in (STUN_CHANGE_TYPE, STUN_MAP_TYPE):
