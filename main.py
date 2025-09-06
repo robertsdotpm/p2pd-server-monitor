@@ -1,3 +1,13 @@
+"""
+I'll put notes here.
+
+Have some kind of uptime thing for servers based on
+    (failed_no / test_no) * 100
+    maybe have the fields wrap around so they dont eventually overflow idk
+
+have that linked list also add a db check that fallback_id < max(id)
+"""
+
 import asyncio
 import aiosqlite
 from p2pd import *
@@ -18,41 +28,24 @@ NTP_TYPE = 5
 TEST_DATA = [
     [
         [
-            ["stun1.p2pd.net"],
-            STUN_MAP_TYPE, V4, SOCK_DGRAM, "158.69.27.176", 3478
+            ["stun.l.google.com"],
+            STUN_MAP_TYPE, V4, SOCK_DGRAM, "74.125.250.129", 19302
         ]
     ],
-    [
-        [
-            ["stun1.p2pd.net"],
-            STUN_MAP_TYPE, V6, SOCK_DGRAM, "2607:5300:60:80b0::1", 3478
-        ]
-    ],
-    [
-        [
-            ["stun1.p2pd.net"],
-            STUN_MAP_TYPE, V4, SOCK_STREAM, "158.69.27.176", 3478
-        ]
-    ],
-    [
-        [
-            ["stun1.p2pd.net"],
-            STUN_MAP_TYPE, V6, SOCK_STREAM, "2607:5300:60:80b0::1", 3478
-        ]
-    ],
-    [
-        [
-            ["stun.gmx.de"],
-            STUN_CHANGE_TYPE, V4, SOCK_DGRAM, "212.227.67.33", 3478
-        ],
-        [
-            ["stun.gmx.de"],
-            STUN_CHANGE_TYPE, V4, SOCK_DGRAM, "212.227.67.34", 3479
-        ],
-    ],
+
+
+
 ]
 
 
+
+async def get_last_row_id(db, table_name):
+    sql = "SELECT max(id) FROM %s;" % (table_name)
+
+    # Try fetch a row
+    async with db.execute(sql) as cursor:
+        row = await cursor.fetchone()
+        return row[0]
 
 async def delete_all_data(db):
     for table in ("services", "aliases"):
@@ -111,11 +104,12 @@ async def record_service(db, service_type, af, proto, ip, port, fallback_id=None
     
     # Insert the service.
     ret = await insert_service(db, service_type, af, proto, ip, port, fallback_id)
-    print(ret)
+    return ret
 
 async def insert_test_data(db):
     for groups in TEST_DATA:
         fallback_id = None
+        print(groups)
         for group in groups:
             insert_id = await record_service(
                 db=db,
@@ -128,6 +122,64 @@ async def insert_test_data(db):
             )
 
             fallback_id  = insert_id
+
+async def worker(db):
+    nic = await Interface()
+
+    # Try fetch a row
+    async with db.execute("SELECT * FROM services ORDER BY id DESC;") as cursor:
+        rows = await cursor.fetchall()
+        
+        groups = []
+        for row in rows:
+            row_id = row[0]
+            service_type = row[1]
+            af = row[2]
+            proto = row[3]
+            ip = row[4]
+            port = row[5]
+            fallback_id = row[6]
+            last_online = row[7]
+
+
+
+            # Convert back af and proto.
+            af = IP4 if af == 2 else IP6
+            proto = UDP if proto == 2 else TCP
+
+
+            # Skip unsupported AFs for now.
+            if af not in nic.supported():
+                print(af, " not supported")
+                continue
+
+            chain_end = False
+            groups.append(row)
+
+            # Build chain of groups based on fallback servers.
+            if fallback_id is None:
+                chain_end = True
+
+            # Processing here.
+
+            if service_type == STUN_MAP_TYPE:
+                print(ip, port)
+                print(af)
+                print(proto)
+                try:
+                    client = STUNClient(af, (ip, port), nic, proto=proto, mode=RFC5389)
+                    out = await client.get_wan_ip()
+                    print(out)
+                except:
+                    what_exception()
+                    pass
+
+            # Cleanup.
+            if chain_end:
+                groups = []
+
+
+
 
 async def main():
     print("main")
@@ -143,6 +195,9 @@ async def main():
     async with aiosqlite.connect(DB_NAME) as db:
         await delete_all_data(db)
         await insert_test_data(db)
+        #await get_last_row_id(db, "services")
+        await worker(db)
+
         await db.commit()
         return
 
