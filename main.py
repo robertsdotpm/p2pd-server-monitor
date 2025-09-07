@@ -6,6 +6,13 @@ Have some kind of uptime thing for servers based on
     maybe have the fields wrap around so they dont eventually overflow idk
 
 have that linked list also add a db check that fallback_id < max(id)
+
+i think ill use nat test as the basis but avoid actually touching that code
+it works so 
+
+need to reuse pipe or change tests wont reach anywhere bound...
+
+BIG note: the STUN server validation code needs to run on a server without a NAT.
 """
 
 import asyncio
@@ -90,34 +97,53 @@ async def is_unique_service(db, service_type, af, proto, ip, port):
         rows = await cursor.fetchall()
         return not len(rows)
     
-async def validate_stun_server(af, ip, port, proto, nic, mode, cip=None, cport=None):
+async def validate_stun_server(ip, port, pipe, mode, cip=None, cport=None):
     # New client used for the req.
     stun_client = STUNClient(
-        af=af,
+        af=pipe.route.af,
         dest=(ip, port),
-        nic=nic,
-        proto=proto,
+        nic=pipe.route.interface,
+        proto=pipe.proto,
         mode=mode
     )
 
+    print("validate stun server = ", ip, ":", port)
+
     # Lowever level -- get STUN reply.
-    reply = await stun_client.get_stun_reply()
+    reply = None
+    if mode == RFC3489:
+        # Reply from different port only.
+        if cport is not None and cip is None:
+            print("change port", ip, ":", cport)
+            reply = await stun_client.get_change_port_reply((ip, cport), pipe)
+            
+
+        # Reply from different IP only.
+        if cip is not None and cport is not None:
+            print("change ip:port", cip, ":", cport)
+            reply = await stun_client.get_change_tup_reply((cip, cport), pipe)
+
+        # The NAT test code doesn't need to very just the IP.
+        # So that edge case is not checked.
+        # if cip is not None and cport is None: etc
+        if cip is None and cport is None:
+            print("get reug stun reply.")
+            reply = await stun_client.get_stun_reply(pipe=pipe)
+    else:
+        reply = await stun_client.get_stun_reply(pipe=pipe)
+
+    print(reply)
     
     # Validate the reply.
     reply = validate_stun_reply(reply, mode)
     if reply is None:
         raise Exception("Invalid stun reply.")
-    
-    # Cleanup the pipe for the request.
-    if hasattr(reply, "pipe"):
-        await reply.pipe.close()  
-
-    print(reply.ctup, cip)
 
     # Specific logic to validate RFC3489 change IP/ports.
     # this wont work you actually need to test the change requests work as expected
     # it doesnt even matter if the server returns the wrong cips as long as
     # it replies on the expected ips when the requests are sent
+    return reply
     if mode == RFC3489:
         if not hasattr(reply, "ctup"):
             raise Exception("no ctup in reply.")
@@ -147,11 +173,23 @@ async def validate_stun_server(af, ip, port, proto, nic, mode, cip=None, cport=N
 # So with RFC 3489 there's actualoly 4 STUN servers to check:
 async def validate_rfc3489_stun_server(af, proto, nic, primary_tup, secondary_tup):
     infos = [
-        (primary_tup[0], primary_tup[1], secondary_tup[0], primary_tup[2]),
-        (primary_tup[0], primary_tup[2], secondary_tup[0], primary_tup[1]),
-        (secondary_tup[0], secondary_tup[1], primary_tup[0], secondary_tup[2]),
-        (secondary_tup[0], secondary_tup[2], primary_tup[0], secondary_tup[1]),
+        # Test primary ip, port.
+        (primary_tup[0], primary_tup[1], None, None),
+
+        # Test reply from primary ip, change port.
+        (primary_tup[0], primary_tup[1], None, primary_tup[2]),
+
+        # Test primary ip, change ip replay.
+        # NAT test doesn't need this functionality -- skip for now.
+        #(secondary_tup[0], secondary_tup[1], secondary_tup[0], None),
+
+        # Test secondary IP, change port.
+        (primary_tup[0], primary_tup[1], secondary_tup[0], secondary_tup[2]),
     ]
+
+
+    route = nic.route(af)
+    pipe = await pipe_open(proto, route=route)
 
 
     # Compare IPS in different tups (must be different)
@@ -161,16 +199,19 @@ async def validate_rfc3489_stun_server(af, proto, nic, primary_tup, secondary_tu
     # Test each STUN server.
     for info in infos:
         dest_ip, dest_port, cip, cport = info
+        print(info)
+        print()
+
         await validate_stun_server(
-            af, 
-            dest_ip,
-            dest_port,
-            proto,
-            nic,
-            RFC3489,
+            ip=dest_ip,
+            port=dest_port,
+            pipe=pipe,
+            mode=RFC3489,
             cip=cip,
             cport=cport
         )
+
+        print("validate stun server n success")
     
 # Validation here.
 # Don't expose fallback_id directly in public APIs -- grouped service API though.
@@ -212,7 +253,6 @@ async def record_service(db, nic, service_type, af, proto, ip, port, fallback_id
 async def insert_test_data(db, nic):
     for groups in TEST_DATA:
         fallback_id = None
-        print(groups)
         for group in groups:
             insert_id = await record_service(
                 db=db,
@@ -267,6 +307,7 @@ async def worker(db, nic):
             # Processing here.
 
             if service_type == STUN_MAP_TYPE:
+                """
                 print("in map type")
                 print(ip, port)
                 print(af)
@@ -278,13 +319,16 @@ async def worker(db, nic):
                 except:
                     what_exception()
                     pass
+                """
+                pass
 
             if service_type == STUN_CHANGE_TYPE and len(groups) == 4:
                 print("stun inside change type")
-                print(groups)
 
                 # Validates the relationship between 4 stun servers.
                 groups = list(reversed(groups))
+                print(groups)
+                print()
                 await validate_rfc3489_stun_server(
                     af,
                     proto,
