@@ -27,14 +27,26 @@ NTP_TYPE = 5
 # groups .. group(s) ... fields inc list of fqns associated with it (maybe be blank)
 # type * af * proto * group_len = ...
 TEST_DATA = [
+
+
     [
         [
-            ["stun.l.google.com"],
-            STUN_MAP_TYPE, V4, SOCK_DGRAM, "74.125.250.129", 19302
-        ]
+            ["stun.hot-chilli.net"],
+            STUN_CHANGE_TYPE, V4, SOCK_DGRAM, "49.12.125.53", 3478
+        ],
+        [
+            ["stun.hot-chilli.net"],
+            STUN_CHANGE_TYPE, V4, SOCK_DGRAM, "49.12.125.53", 3479
+        ],
+        [
+            [],
+            STUN_CHANGE_TYPE, V4, SOCK_DGRAM, "49.12.125.24", 3478
+        ],
+        [
+            [],
+            STUN_CHANGE_TYPE, V4, SOCK_DGRAM, "49.12.125.24", 3479
+        ],
     ],
-
-
 
 ]
 
@@ -100,23 +112,29 @@ async def validate_stun_server(af, ip, port, proto, nic, mode, cip=None, cport=N
     if hasattr(reply, "pipe"):
         await reply.pipe.close()  
 
+    print(reply.ctup, cip)
+
     # Specific logic to validate RFC3489 change IP/ports.
+    # this wont work you actually need to test the change requests work as expected
+    # it doesnt even matter if the server returns the wrong cips as long as
+    # it replies on the expected ips when the requests are sent
     if mode == RFC3489:
         if not hasattr(reply, "ctup"):
             raise Exception("no ctup in reply.")
             
         # Change IP different from reply IP.
-        if IPR(ip, af) == IPR(reply.ctup[0], af):
-            raise Exception("change IP was the same")
+        #if IPR(ip, af) == IPR(reply.ctup[0], af):
+        #    raise Exception("change IP was the same")
         
         # Validate change IP is as expected.
         if cip is not None:
+
             if IPR(reply.ctup[0], af) != IPR(cip, af):
                 raise Exception("Change IP not as expected.")
         
         # Change port different from reply port.
-        if port == reply.ctup[1]:
-            raise Exception("change port is same as source port")
+        #if port == reply.ctup[1]:
+        #    raise Exception("change port is same as source port")
         
         # Validate cport is as expected.
         if cport is not None:
@@ -135,6 +153,12 @@ async def validate_rfc3489_stun_server(af, proto, nic, primary_tup, secondary_tu
         (secondary_tup[0], secondary_tup[2], primary_tup[0], secondary_tup[1]),
     ]
 
+
+    # Compare IPS in different tups (must be different)
+    if IPR(primary_tup[0], af) == IPR(secondary_tup[0], af):
+        raise Exception("primary and secondary STUN IPs must differ.")
+
+    # Test each STUN server.
     for info in infos:
         dest_ip, dest_port, cip, cport = info
         await validate_stun_server(
@@ -180,25 +204,7 @@ async def record_service(db, nic, service_type, af, proto, ip, port, fallback_id
     ipr = IPRange(ip, cidr=af_to_cidr(af))
     if ipr.is_private:
         raise Exception("ip is private for record service")
-    
-    # For stun validate the server type.
-    if service_type in (STUN_CHANGE_TYPE, STUN_MAP_TYPE):
-        try:
-            out = await validate_stun_server(
-                af,
-                ip,
-                port,
-                proto,
-                nic,
-                RFC5389 if service_type == STUN_MAP_TYPE else RFC3489,
-                8
-            )
-            print(out)
-        except:
-            what_exception()
-            pass
-
-    
+        
     # Insert the service.
     ret = await insert_service(db, service_type, af, proto, ip, port, fallback_id)
     return ret
@@ -226,6 +232,7 @@ async def worker(db, nic):
     async with db.execute("SELECT * FROM services ORDER BY id DESC;") as cursor:
         rows = await cursor.fetchall()
         
+        chain_end = False
         groups = []
         for row in rows:
             row_id = row[0]
@@ -249,8 +256,9 @@ async def worker(db, nic):
                 print(af, " not supported")
                 continue
 
-            chain_end = False
             groups.append(row)
+
+            print("fallback id ", fallback_id)
 
             # Build chain of groups based on fallback servers.
             if fallback_id is None:
@@ -259,6 +267,7 @@ async def worker(db, nic):
             # Processing here.
 
             if service_type == STUN_MAP_TYPE:
+                print("in map type")
                 print(ip, port)
                 print(af)
                 print(proto)
@@ -270,17 +279,29 @@ async def worker(db, nic):
                     what_exception()
                     pass
 
-            if service_type == STUN_CHANGE_TYPE:
-                # Needs at least primary and secondary server IPs.
-                if len(groups) != 2:
-                    groups = []
-                    continue
+            if service_type == STUN_CHANGE_TYPE and len(groups) == 4:
+                print("stun inside change type")
+                print(groups)
 
+                # Validates the relationship between 4 stun servers.
+                groups = list(reversed(groups))
+                await validate_rfc3489_stun_server(
+                    af,
+                    proto,
+                    nic,
 
+                    # IP, main port, secondary port
+                    (groups[0][4], groups[0][5], groups[1][5]),
+                    (groups[2][4], groups[2][5], groups[3][5]),
+                )
+
+                print("change servers validated")
 
             # Cleanup.
             if chain_end:
+                print("chain end = ", chain_end)
                 groups = []
+                chain_end = False
 
 
 
@@ -303,7 +324,7 @@ async def main():
         await insert_test_data(db, nic)
         #await get_last_row_id(db, "services")
         await worker(db, nic)
-
+        await delete_all_data(db)
         await db.commit()
         return
 
