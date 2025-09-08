@@ -19,9 +19,6 @@ async def worker(db, nic):
             ip = row[4]
             port = row[5]
             fallback_id = row[6]
-            last_online = row[7]
-
-
 
             # Convert back af and proto.
             af = IP4 if af == 2 else IP6

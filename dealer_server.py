@@ -17,13 +17,23 @@ BIG note: the STUN server validation code needs to run on a server without a NAT
 copying change servers to map servers as-is means you could accidentally white list
 a change server address by checking a wan ip, thus, only the primary address
 should be in the map servers. this means that the current code is wrong.
+
+wll use pub bind for fastapi and for private calls reject non-local client src.
+    add auth later on
 """
 
 import asyncio
 import aiosqlite
+from typing import Union
+from fastapi import FastAPI
 from p2pd import *
 from .dealer_utils import *
 
+app = FastAPI()
+
+@app.get("/work")
+def get_work():
+    return {"Hello": "World"}
 
 
 async def main():
@@ -60,4 +70,4 @@ async def main():
 
 
 
-asyncio.run(main())
+#asyncio.run(main())

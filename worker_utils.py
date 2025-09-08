@@ -44,35 +44,6 @@ async def validate_stun_server(ip, port, pipe, mode, cip=None, cport=None):
     if reply is None:
         raise Exception("Invalid stun reply.")
 
-    # Specific logic to validate RFC3489 change IP/ports.
-    # this wont work you actually need to test the change requests work as expected
-    # it doesnt even matter if the server returns the wrong cips as long as
-    # it replies on the expected ips when the requests are sent
-    return reply
-    if mode == RFC3489:
-        if not hasattr(reply, "ctup"):
-            raise Exception("no ctup in reply.")
-            
-        # Change IP different from reply IP.
-        #if IPR(ip, af) == IPR(reply.ctup[0], af):
-        #    raise Exception("change IP was the same")
-        
-        # Validate change IP is as expected.
-        if cip is not None:
-
-            if IPR(reply.ctup[0], af) != IPR(cip, af):
-                raise Exception("Change IP not as expected.")
-        
-        # Change port different from reply port.
-        #if port == reply.ctup[1]:
-        #    raise Exception("change port is same as source port")
-        
-        # Validate cport is as expected.
-        if cport is not None:
-            if cport != reply.ctup[1]:
-                raise Exception("change port not as expected.")
-
-    # Return all the gathered data.
     return reply
 
 # So with RFC 3489 there's actualoly 4 STUN servers to check:

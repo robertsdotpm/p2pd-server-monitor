@@ -3,7 +3,7 @@ from p2pd import SOCK_DGRAM, SOCK_STREAM, V4, V6
 DB_NAME = "monitor.sqlite3"
 
 #####################################################################################
-SERVICE_SCHEMA = ("type", "af", "proto", "ip", "port", "fallback_id", "last_online")
+SERVICE_SCHEMA = ("type", "af", "proto", "ip", "port", "fallback_id")
 STUN_MAP_TYPE = 1
 STUN_CHANGE_TYPE = 2
 MQTT_TYPE = 3

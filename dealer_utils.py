@@ -17,13 +17,13 @@ async def delete_all_data(db):
         sql = "DELETE FROM %s;" % (table)
         await db.execute(sql)
 
-async def insert_service(db, service_type, af, proto, ip, port, fallback_id=None):
+async def insert_service(db, service_type, af, proto, ip, port, fb_id=None):
     # Parameterized insert
     sql  = "INSERT INTO services (%s) VALUES " % (", ".join(SERVICE_SCHEMA)) 
     sql += "(?, ?, ?, ?, ?, ?, ?)"
     async with await db.execute(
         sql,
-        (service_type, af, proto, ip, port, fallback_id, 0)
+        (service_type, af, proto, ip, port, fb_id, 0)
     ) as cursor:
         return cursor.lastrowid
 
@@ -31,7 +31,6 @@ async def is_unique_service(db, service_type, af, proto, ip, port):
     # Remove these fields -- not relevant for uniqueness check.
     schema = list(SERVICE_SCHEMA[:])
     schema.remove("fallback_id")
-    schema.remove("last_online")
 
     # Parameterized SELECT
     sql  = "SELECT %s FROM services WHERE " % (", ".join(schema))
@@ -45,7 +44,7 @@ async def is_unique_service(db, service_type, af, proto, ip, port):
     
 # Validation here.
 # Don't expose fallback_id directly in public APIs -- grouped service API though.
-async def record_service(db, nic, service_type, af, proto, ip, port, fallback_id=None):
+async def record_service(db, nic, service_type, af, proto, ip, port, fb_id=None):
     if not in_range(service_type, [1, 5]):
         raise Exception("Invalid service type for record")
     
@@ -77,7 +76,7 @@ async def record_service(db, nic, service_type, af, proto, ip, port, fallback_id
         raise Exception("ip is private for record service")
         
     # Insert the service.
-    ret = await insert_service(db, service_type, af, proto, ip, port, fallback_id)
+    ret = await insert_service(db, service_type, af, proto, ip, port, fb_id)
     return ret
 
 async def insert_test_data(db, nic):
@@ -92,7 +91,7 @@ async def insert_test_data(db, nic):
                 proto=group[3],
                 ip=group[4],
                 port=group[5],
-                fallback_id=fallback_id
+                fb_id=fallback_id
             )
 
             fallback_id  = insert_id
