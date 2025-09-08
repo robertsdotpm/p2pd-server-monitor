@@ -13,6 +13,10 @@ it works so
 need to reuse pipe or change tests wont reach anywhere bound...
 
 BIG note: the STUN server validation code needs to run on a server without a NAT.
+
+copying change servers to map servers as-is means you could accidentally white list
+a change server address by checking a wan ip, thus, only the primary address
+should be in the map servers. this means that the current code is wrong.
 """
 
 import asyncio
@@ -194,7 +198,11 @@ async def validate_rfc3489_stun_server(af, proto, nic, primary_tup, secondary_tu
 
     # Compare IPS in different tups (must be different)
     if IPR(primary_tup[0], af) == IPR(secondary_tup[0], af):
-        raise Exception("primary and secondary STUN IPs must differ.")
+        raise Exception("primary and secondary IPs must differ 3489.")
+
+    # Change port must differ.
+    if primary_tup[1] == secondary_tup[2]:
+        raise Exception("change port must differ 3489")
 
     # Test each STUN server.
     for info in infos:
