@@ -22,6 +22,8 @@ wll use pub bind for fastapi and for private calls reject non-local client src.
     add auth later on
 
 todo: dont give out work thats already too recent
+
+max uptime
 """
 
 import asyncio
@@ -110,19 +112,76 @@ async def get_work():
 # TODO change to post later.
 @app.get("/complete")
 async def signal_complete_work(is_success: int, status_id: int, t: int):
+    """
+    For uptime -- keep incrementing uptime field as long as its success.
+    However, if last_success time reaches a threshold consider the server offline.
+    """
     async with aiosqlite.connect(DB_NAME) as db:
         if is_success:
-            sql  = "UPDATE status SET status=?, last_status=?,"
-            sql += "last_success=?, test_no=test_no + 1 WHERE id=?"
+            # Update uptime.
+            sql = """
+            UPDATE status
+            SET uptime = uptime + (? - last_status)
+            WHERE id = ?;
+            """
+            await db.execute(sql, (t, status_id))
+
+            # Update max_uptime if the new uptime is larger.
+            sql = """
+            UPDATE status
+            SET max_uptime = uptime
+            WHERE id = ?
+            AND uptime > max_uptime;
+            """
+            await db.execute(sql, (status_id,))
+
+            # Indicate success: advance test_no with wrap.
+            sql = """
+            UPDATE status
+            SET status = ?,
+                last_status = ?,
+                last_success = ?,
+                test_no = (test_no + 1) % 1000000,
+                failed_tests = CASE
+                    WHEN (test_no + 1) % 1000000 = 0 THEN 0
+                    ELSE failed_tests
+                END
+            WHERE id = ?;
+            """
             await db.execute(sql, (STATUS_AVAILABLE, t, t, status_id,))
         else:
-            sql  = "UPDATE status SET status=?, last_status=?,"
-            sql += "failed_tests=failed_tests + 1, test_no=test_no + 1 WHERE id=?"
-            await db.execute(sql, (STATUS_AVAILABLE, t, status_id,))
+            # Update status.
+            sql = """
+            UPDATE status
+            SET status = ?,
+                last_status = ?,
+                test_no = (test_no + 1) % 1000000,
+                failed_tests = CASE
+                    WHEN (test_no + 1) % 1000000 = 0 THEN 0
+                    ELSE failed_tests + 1
+                END
+            WHERE id = ?;
+            """
+            await db.execute(sql, (STATUS_AVAILABLE, t, status_id))
+
+            # Reset uptime if last_success passes failure threshold.
+            sql = """
+            UPDATE status
+            SET uptime = 0
+            WHERE id = ?
+            AND (? - last_success) >= ?;
+            """
+            await db.execute(sql, (status_id, t, SERVER_MAX_DOWNTIME))
 
         await db.commit()
 
     return []
+
+#Show a listing of servers based on quality
+@app.get("/servers")
+async def list_servers():
+    pass
+
 
 # Just for testing.
 @app.get("/freshdb")
