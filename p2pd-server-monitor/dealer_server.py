@@ -31,17 +31,6 @@ from .dealer_utils import *
 
 app = FastAPI()
 
-
-async def load_status_row(db, service_id):
-    sql = "SELECT * FROM status WHERE id=?"
-    async with db.execute(sql, (service_id,)) as cursor:
-        return dict(await cursor.fetchone())
-    
-async def update_status_dealt(db, status_id):
-    sql = "UPDATE status SET status=?, last_status=? WHERE id=?"
-    await db.execute(sql, (STATUS_DEALT, int(time.time()), status_id,))
-    await db.commit()
-
 @app.get("/work")
 async def get_work():
     groups = []
@@ -91,6 +80,24 @@ async def get_work():
                     print("chain end = ", chain_end)
                     groups = []
                     chain_end = False
+
+    return []
+
+# TODO change to post later.
+@app.get("/complete")
+async def signal_complete_work(is_success: int, status_id: int):
+    t = int(time.time())
+    async with aiosqlite.connect(DB_NAME) as db:
+        if is_success:
+            sql  = "UPDATE status SET status=?, last_status=?,"
+            sql += "last_success=?, test_no=test_no + 1 WHERE id=?"
+            await db.execute(sql, (STATUS_AVAILABLE, t, t, status_id,))
+        else:
+            sql  = "UPDATE status SET status=?, last_status=?,"
+            sql += "failed_tests=failed_tests + 1, test_no=test_no + 1 WHERE id=?"
+            await db.execute(sql, (STATUS_AVAILABLE, t, status_id,))
+
+        await db.commit()
 
     return []
 

@@ -88,6 +88,17 @@ async def init_status_row(db, service_id):
         (service_id, 0, int(time.time()), 0, 0, 0)
     ) as cursor:
         return cursor.lastrowid
+    
+async def load_status_row(db, service_id):
+    sql = "SELECT * FROM status WHERE id=?"
+    async with db.execute(sql, (service_id,)) as cursor:
+        return dict(await cursor.fetchone())
+    
+async def update_status_dealt(db, status_id):
+    sql = "UPDATE status SET status=?, last_status=? WHERE id=?"
+    await db.execute(sql, (STATUS_DEALT, int(time.time()), status_id,))
+    await db.commit()
+
 
 async def insert_test_data(db):
     for groups in TEST_DATA:
