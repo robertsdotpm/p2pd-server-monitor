@@ -20,6 +20,8 @@ should be in the map servers. this means that the current code is wrong.
 
 wll use pub bind for fastapi and for private calls reject non-local client src.
     add auth later on
+
+todo: dont give out work thats already too recent
 """
 
 import asyncio
