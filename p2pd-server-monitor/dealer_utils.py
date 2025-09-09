@@ -94,9 +94,10 @@ async def load_status_row(db, service_id):
     async with db.execute(sql, (service_id,)) as cursor:
         return dict(await cursor.fetchone())
     
-async def update_status_dealt(db, status_id):
+async def update_status_dealt(db, status_id, t=None):
+    t = t or int(time.time())
     sql = "UPDATE status SET status=?, last_status=? WHERE id=?"
-    await db.execute(sql, (STATUS_DEALT, int(time.time()), status_id,))
+    await db.execute(sql, (STATUS_DEALT, t, status_id,))
     await db.commit()
 
 

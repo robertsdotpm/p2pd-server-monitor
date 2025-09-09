@@ -11,12 +11,6 @@ async def worker(nic, groups):
     proto = UDP if groups[0]["proto"] == 2 else TCP
     is_success = 1
     if groups[0]["type"] == STUN_MAP_TYPE and single_group:
-        """
-        print("in map type")
-        print(ip, port)
-        print(af)
-        print(proto)
-        """
         try:
             dest = (groups[0]["ip"], groups[0]["port"],)
             client = STUNClient(af, dest, nic, proto=proto, mode=RFC5389)
@@ -28,8 +22,7 @@ async def worker(nic, groups):
             is_success = 0
             pass
 
-    """
-    if service_type == STUN_CHANGE_TYPE and len(groups) == 4:
+    if groups[0]["type"] == STUN_CHANGE_TYPE and len(groups) == 4:
         print("stun inside change type")
 
         # Validates the relationship between 4 stun servers.
@@ -42,13 +35,12 @@ async def worker(nic, groups):
             nic,
 
             # IP, main port, secondary port
-            (groups[0][4], groups[0][5], groups[1][5]),
-            (groups[2][4], groups[2][5], groups[3][5]),
+            (groups[0]["ip"], groups[0]["port"], groups[1]["port"]),
+            (groups[2]["ip"], groups[2]["port"], groups[3]["port"]),
         )
 
         print("change servers validated")
-    """
-
+    
     return is_success, status_ids
 
 async def worker_loop():
@@ -59,27 +51,41 @@ async def worker_loop():
     while 1:
         print("Fetching work... ")
 
-        # Processing here.
+        # Fetch work from dealer server.
         resp = await curl.vars().get("/work")
-        groups = json.loads(to_s(resp.out))
+        if resp.info is None:
+            await asyncio.sleep(5)
+            continue
+        else:
+            groups = json.loads(to_s(resp.out))
+
+        # If there's no work -- sleep and continue.
+        if not len(groups):
+            print("no work ready ... sleeping.")
+            await asyncio.sleep(5)
+            continue
+
         print(groups)
 
         # Carry out the work.
-        is_success, status_ids = await worker(nic, groups)
+        try:
+            is_success, status_ids = await worker(nic, groups)
+        except:
+            print("Worker process exception.")
+            log_exception()
+            await asyncio.sleep(5)
+            continue
+
         print("is success = ", is_success)
         print("status ids = ", status_ids)
 
         # Indicate the status outcome.
+        t = int(time.time())
         for status_id in status_ids:
             # Indicate work complete.
-            params = {"is_success": is_success, "status_id": status_id}
+            params = {"is_success": is_success, "status_id": status_id, "t": t}
             await curl.vars(params).get("/complete")
 
         #await curl.vars().get("/freshdb")
-
-        time.sleep(10)
-        return
-
-
 
 asyncio.run(worker_loop())

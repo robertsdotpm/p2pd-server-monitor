@@ -67,6 +67,10 @@ async def get_work():
                     if elapsed >= WORKER_TIMEOUT:
                         status_row["status"] = STATUS_AVAILABLE
 
+                # Skip servers that were checked recently.
+                if elapsed < MONITOR_FREQUENCY:
+                    continue
+
                 # Specific logic for stun change servers.
                 if len(groups) == 4:
                     available = True
@@ -75,9 +79,11 @@ async def get_work():
                             available = False
 
                     if available:
+                        # Make all in group have same status time.
+                        t = int(time.time())
                         for group in groups:
                             # Indicate this is allocated as work.
-                            await update_status_dealt(db, row["status"]["id"])
+                            await update_status_dealt(db, row["status"]["id"], t=t)
                     else:
                         continue
                 else:
@@ -103,8 +109,7 @@ async def get_work():
 
 # TODO change to post later.
 @app.get("/complete")
-async def signal_complete_work(is_success: int, status_id: int):
-    t = int(time.time())
+async def signal_complete_work(is_success: int, status_id: int, t: int):
     async with aiosqlite.connect(DB_NAME) as db:
         if is_success:
             sql  = "UPDATE status SET status=?, last_status=?,"
