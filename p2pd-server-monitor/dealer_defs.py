@@ -4,7 +4,7 @@ from p2pd import SOCK_DGRAM, SOCK_STREAM, V4, V6
 DB_NAME = "/home/x/Desktop/projects/p2pd-server-monitor/p2pd-server-monitor/monitor.sqlite3"
 WORKER_TIMEOUT = 120
 MONITOR_FREQUENCY = 2
-SERVER_MAX_DOWNTIME = 600
+MAX_SERVER_DOWNTIME = 600
 
 #####################################################################################
 SERVICE_SCHEMA = ("type", "af", "proto", "ip", "port", "fallback_id")

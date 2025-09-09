@@ -24,6 +24,8 @@ wll use pub bind for fastapi and for private calls reject non-local client src.
 todo: dont give out work thats already too recent
 
 max uptime
+
+
 """
 
 import asyncio
@@ -171,7 +173,7 @@ async def signal_complete_work(is_success: int, status_id: int, t: int):
             WHERE id = ?
             AND (? - last_success) >= ?;
             """
-            await db.execute(sql, (status_id, t, SERVER_MAX_DOWNTIME))
+            await db.execute(sql, (status_id, t, MAX_SERVER_DOWNTIME))
 
         await db.commit()
 
@@ -180,7 +182,25 @@ async def signal_complete_work(is_success: int, status_id: int, t: int):
 #Show a listing of servers based on quality
 @app.get("/servers")
 async def list_servers():
-    pass
+    sql = """
+    SELECT status.*, services.*, 
+        (
+            -- Reliability
+            (1.0 - CAST(status.failed_tests AS REAL) / (status.test_no + 1e-9))
+            *
+            -- Uptime ratio, fallback to 0.5 if max_uptime is zero
+            (0.5 * CASE WHEN status.max_uptime > 0 
+                        THEN status.uptime / status.max_uptime 
+                        ELSE 1.0
+                    END + 0.5)
+            *
+            -- Confidence factor
+            (1.0 - EXP(-CAST(status.test_no AS REAL)/50.0))
+        ) AS quality_score
+    FROM status
+    JOIN services ON status.service_id = services.id
+    ORDER BY quality_score DESC;
+    """
 
 
 # Just for testing.
