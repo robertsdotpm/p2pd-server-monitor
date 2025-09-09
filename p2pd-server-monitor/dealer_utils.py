@@ -79,6 +79,16 @@ async def record_service(db, nic, service_type, af, proto, ip, port, fb_id=None)
     ret = await insert_service(db, service_type, af, proto, ip, port, fb_id)
     return ret
 
+async def init_status_row(db, service_id):
+    # Parameterized insert
+    sql  = "INSERT INTO status (%s) VALUES " % (", ".join(STATUS_SCHEMA)) 
+    sql += "(?, ?, ?, ?, ?, ?, ?)"
+    async with await db.execute(
+        sql,
+        (service_id, 0, int(time.time()), 0, 0, 0)
+    ) as cursor:
+        return cursor.lastrowid
+
 async def insert_test_data(db, nic):
     for groups in TEST_DATA:
         fallback_id = None
@@ -93,5 +103,11 @@ async def insert_test_data(db, nic):
                 port=group[5],
                 fb_id=fallback_id
             )
+            assert(insert_id is not None)
 
+            # Attach a status row.
+            status_id = await init_status_row(db, insert_id)
+            assert(status_id is not None)
+
+            # Used for making chains of fallback servers.
             fallback_id  = insert_id

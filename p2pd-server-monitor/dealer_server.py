@@ -30,9 +30,47 @@ from p2pd import *
 from .dealer_utils import *
 
 app = FastAPI()
+db = aiosqlite.connect(DB_NAME)
+
+async def load_status_row(db, service_id):
+    sql = "SELECT * FROM status WHERE id=?"
+    async with db.execute(sql, (service_id)) as cursor:
+        return await cursor.fetchone()
 
 @app.get("/work")
-def get_work():
+async def get_work():
+    async with aiosqlite.connect(DB_NAME) as db:
+
+        # Try fetch a row
+        async with db.execute("SELECT * FROM services ORDER BY id DESC;") as cursor:
+            rows = await cursor.fetchall()
+            
+            chain_end = False
+            groups = []
+            for row in rows:
+                row_id = row[0]
+                service_type = row[1]
+                af = row[2]
+                proto = row[3]
+                ip = row[4]
+                port = row[5]
+                fallback_id = row[6]
+
+                # Convert back af and proto.
+                af = IP4 if af == 2 else IP6
+                proto = UDP if proto == 2 else TCP
+                groups.append(row)
+
+                # Build chain of groups based on fallback servers.
+                if fallback_id is None:
+                    chain_end = True
+
+                # Cleanup.
+                if chain_end:
+                    print("chain end = ", chain_end)
+                    groups = []
+                    chain_end = False
+
     return {"Hello": "World"}
 
 
@@ -53,7 +91,7 @@ async def main():
         await delete_all_data(db)
         await insert_test_data(db, nic)
         #await get_last_row_id(db, "services")
-        await delete_all_data(db)
+        #await delete_all_data(db)
         await db.commit()
         return
 
@@ -70,4 +108,4 @@ async def main():
 
 
 
-#asyncio.run(main())
+asyncio.run(main())

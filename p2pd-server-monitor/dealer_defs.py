@@ -1,9 +1,12 @@
 from p2pd import SOCK_DGRAM, SOCK_STREAM, V4, V6
 
-DB_NAME = "monitor.sqlite3"
+# Placeholder -- fix this.
+DB_NAME = "/home/x/Desktop/projects/p2pd-server-monitor/p2pd-server-monitor/monitor.sqlite3"
 
 #####################################################################################
 SERVICE_SCHEMA = ("type", "af", "proto", "ip", "port", "fallback_id")
+STATUS_SCHEMA = ("service_id", "status", "last_status", "test_no")
+STATUS_SCHEMA += ("failed_tests", "last_success")
 STUN_MAP_TYPE = 1
 STUN_CHANGE_TYPE = 2
 MQTT_TYPE = 3
