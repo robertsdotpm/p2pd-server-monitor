@@ -30,40 +30,61 @@ from p2pd import *
 from .dealer_utils import *
 
 app = FastAPI()
-db = aiosqlite.connect(DB_NAME)
+
 
 async def load_status_row(db, service_id):
     sql = "SELECT * FROM status WHERE id=?"
-    async with db.execute(sql, (service_id)) as cursor:
-        return await cursor.fetchone()
+    async with db.execute(sql, (service_id,)) as cursor:
+        return dict(await cursor.fetchone())
+    
+async def update_status_dealt(db, status_id):
+    sql = "UPDATE status SET status=?, last_status=? WHERE id=?"
+    await db.execute(sql, (STATUS_DEALT, int(time.time()), status_id,))
+    await db.commit()
 
 @app.get("/work")
 async def get_work():
+    groups = []
+    chain_end = False
     async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
 
         # Try fetch a row
         async with db.execute("SELECT * FROM services ORDER BY id DESC;") as cursor:
             rows = await cursor.fetchall()
-            
-            chain_end = False
-            groups = []
-            for row in rows:
-                row_id = row[0]
-                service_type = row[1]
-                af = row[2]
-                proto = row[3]
-                ip = row[4]
-                port = row[5]
-                fallback_id = row[6]
+            print(rows)
 
+            rows = [dict(row) for row in rows]
+            for row in rows:
                 # Convert back af and proto.
-                af = IP4 if af == 2 else IP6
-                proto = UDP if proto == 2 else TCP
+                row["af"] = IP4 if row["af"] == 2 else IP6
+                row["proto"] = UDP if row["proto"] == 2 else TCP
                 groups.append(row)
 
                 # Build chain of groups based on fallback servers.
-                if fallback_id is None:
+                if row["fallback_id"] is None:
                     chain_end = True
+
+                status_row = await load_status_row(db, row["id"])
+
+                # If server hasn't been updated by a worker in over five mins.
+                # Assume worker has crashed and allow work to be reallocated.
+                elapsed = (int(time.time()) - status_row["last_status"]) 
+                if status_row["status"] == STATUS_DEALT:
+                    if elapsed >= WORKER_TIMEOUT:
+                        status_row["status"] = STATUS_AVAILABLE
+
+                # Skip work already allocated.
+                if status_row["status"] != STATUS_AVAILABLE:
+                    continue
+
+                # Indicate this is allocated as work.
+                await update_status_dealt(db, status_row["id"])
+
+                # Return group info.
+                return groups
+
+                print(status_row)
 
                 # Cleanup.
                 if chain_end:
@@ -71,9 +92,10 @@ async def get_work():
                     groups = []
                     chain_end = False
 
-    return {"Hello": "World"}
+    return []
 
 
+@app.on_event("startup")
 async def main():
     print("main")
     print()
@@ -81,17 +103,13 @@ async def main():
     print(int(V6)) # 10
     print(int(TCP))
     print(int(UDP))
-    nic = await Interface()
-
-
-
 
     params = (1, V4, 1, "127.0.0.1", 80, None)
     async with aiosqlite.connect(DB_NAME) as db:
         await delete_all_data(db)
-        await insert_test_data(db, nic)
+        await insert_test_data(db)
         #await get_last_row_id(db, "services")
-        await delete_all_data(db)
+        #await delete_all_data(db)
         await db.commit()
         return
 
@@ -105,7 +123,3 @@ async def main():
         #await insert_service(db, *params)
         await db.commit()
         print(db)
-
-
-
-asyncio.run(main())

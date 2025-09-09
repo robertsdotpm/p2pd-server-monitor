@@ -2,6 +2,7 @@ from p2pd import SOCK_DGRAM, SOCK_STREAM, V4, V6
 
 # Placeholder -- fix this.
 DB_NAME = "/home/x/Desktop/projects/p2pd-server-monitor/p2pd-server-monitor/monitor.sqlite3"
+WORKER_TIMEOUT = 120
 
 #####################################################################################
 SERVICE_SCHEMA = ("type", "af", "proto", "ip", "port", "fallback_id")
@@ -13,6 +14,10 @@ MQTT_TYPE = 3
 TURN_TYPE = 4
 NTP_TYPE = 5
 
+STATUS_AVAILABLE = 0
+STATUS_DEALT = 1
+
+
 #####################################################################################
 # groups .. group(s) ... fields inc list of fqns associated with it (maybe be blank)
 # type * af * proto * group_len = ...
@@ -20,7 +25,7 @@ TEST_DATA = [
     [
         [
             ["stun.hot-chilli.net"],
-            STUN_CHANGE_TYPE, V4, SOCK_DGRAM, "49.12.125.53", 3478
+            STUN_MAP_TYPE, V4, SOCK_DGRAM, "49.12.125.53", 3478
         ],
     ],
 ]

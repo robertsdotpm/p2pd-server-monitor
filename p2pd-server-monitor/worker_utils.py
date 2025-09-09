@@ -50,17 +50,17 @@ async def validate_stun_server(ip, port, pipe, mode, cip=None, cport=None):
 async def validate_rfc3489_stun_server(af, proto, nic, primary_tup, secondary_tup):
     infos = [
         # Test primary ip, port.
-        (primary_tup[0], primary_tup[1], None, None),
+        (primary_tup[0], primary_tup[1], None, None,),
 
         # Test reply from primary ip, change port.
-        (primary_tup[0], primary_tup[1], None, primary_tup[2]),
+        (primary_tup[0], primary_tup[1], None, primary_tup[2],),
 
         # Test primary ip, change ip replay.
         # NAT test doesn't need this functionality -- skip for now.
         #(secondary_tup[0], secondary_tup[1], secondary_tup[0], None),
 
         # Test secondary IP, change port.
-        (primary_tup[0], primary_tup[1], secondary_tup[0], secondary_tup[2]),
+        (primary_tup[0], primary_tup[1], secondary_tup[0], secondary_tup[2],),
     ]
 
 

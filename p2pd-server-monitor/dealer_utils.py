@@ -23,7 +23,7 @@ async def insert_service(db, service_type, af, proto, ip, port, fb_id=None):
     sql += "(?, ?, ?, ?, ?, ?)"
     async with await db.execute(
         sql,
-        (service_type, af, proto, ip, port, fb_id)
+        (service_type, af, proto, ip, port, fb_id,)
     ) as cursor:
         return cursor.lastrowid
 
@@ -44,7 +44,7 @@ async def is_unique_service(db, service_type, af, proto, ip, port):
     
 # Validation here.
 # Don't expose fallback_id directly in public APIs -- grouped service API though.
-async def record_service(db, nic, service_type, af, proto, ip, port, fb_id=None):
+async def record_service(db, service_type, af, proto, ip, port, fb_id=None):
     if not in_range(service_type, [1, 5]):
         raise Exception("Invalid service type for record")
     
@@ -89,13 +89,12 @@ async def init_status_row(db, service_id):
     ) as cursor:
         return cursor.lastrowid
 
-async def insert_test_data(db, nic):
+async def insert_test_data(db):
     for groups in TEST_DATA:
         fallback_id = None
         for group in groups:
             insert_id = await record_service(
                 db=db,
-                nic=nic,
                 service_type=group[1],
                 af=group[2],
                 proto=group[3],
