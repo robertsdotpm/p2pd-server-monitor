@@ -20,10 +20,10 @@ async def delete_all_data(db):
 async def insert_service(db, service_type, af, proto, ip, port, fb_id=None):
     # Parameterized insert
     sql  = "INSERT INTO services (%s) VALUES " % (", ".join(SERVICE_SCHEMA)) 
-    sql += "(?, ?, ?, ?, ?, ?, ?)"
+    sql += "(?, ?, ?, ?, ?, ?)"
     async with await db.execute(
         sql,
-        (service_type, af, proto, ip, port, fb_id, 0)
+        (service_type, af, proto, ip, port, fb_id)
     ) as cursor:
         return cursor.lastrowid
 
@@ -82,7 +82,7 @@ async def record_service(db, nic, service_type, af, proto, ip, port, fb_id=None)
 async def init_status_row(db, service_id):
     # Parameterized insert
     sql  = "INSERT INTO status (%s) VALUES " % (", ".join(STATUS_SCHEMA)) 
-    sql += "(?, ?, ?, ?, ?, ?, ?)"
+    sql += "(?, ?, ?, ?, ?, ?)"
     async with await db.execute(
         sql,
         (service_id, 0, int(time.time()), 0, 0, 0)

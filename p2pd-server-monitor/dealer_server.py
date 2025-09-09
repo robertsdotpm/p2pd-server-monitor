@@ -91,7 +91,7 @@ async def main():
         await delete_all_data(db)
         await insert_test_data(db, nic)
         #await get_last_row_id(db, "services")
-        #await delete_all_data(db)
+        await delete_all_data(db)
         await db.commit()
         return
 
