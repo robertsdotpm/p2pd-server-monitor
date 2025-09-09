@@ -4,79 +4,63 @@ from p2pd import *
 from .dealer_defs import *
 from .worker_utils import *
 
-async def worker(db, nic):
-    # Try fetch a row
-    async with db.execute("SELECT * FROM services ORDER BY id DESC;") as cursor:
-        rows = await cursor.fetchall()
-        
-        chain_end = False
-        groups = []
-        for row in rows:
-            row_id = row[0]
-            service_type = row[1]
-            af = row[2]
-            proto = row[3]
-            ip = row[4]
-            port = row[5]
-            fallback_id = row[6]
+async def worker():
+    nic = await Interface()
+    endpoint = ("127.0.0.1", 8000,)
+    route = nic.route(IP4)
+    curl = WebCurl(endpoint, route)
+    while 1:
+        # Processing here.
+        resp = await curl.vars().get("/work")
+        print(resp.out)
 
-            # Convert back af and proto.
-            af = IP4 if af == 2 else IP6
-            proto = UDP if proto == 2 else TCP
+        # Do work on rsp.
+        ####
 
+        is_success = 1
 
-            # Skip unsupported AFs for now.
-            if af not in nic.supported():
-                print(af, " not supported")
-                continue
+        # Indicate work complete.
+        params = {"is_success": is_success, "status_id": 0}
+        # await curl.vars(params).get("/complete")
 
-            groups.append(row)
+        await curl.vars().get("/freshdb")
 
-            print("fallback id ", fallback_id)
+        time.sleep(10000)
+        return
 
-            # Build chain of groups based on fallback servers.
-            if fallback_id is None:
-                chain_end = True
-
-            # Processing here.
-
-            if service_type == STUN_MAP_TYPE:
-                """
-                print("in map type")
-                print(ip, port)
-                print(af)
-                print(proto)
-                try:
-                    client = STUNClient(af, (ip, port), nic, proto=proto, mode=RFC5389)
-                    out = await client.get_wan_ip()
-                    print(out)
-                except:
-                    what_exception()
-                    pass
-                """
+        if service_type == STUN_MAP_TYPE:
+            """
+            print("in map type")
+            print(ip, port)
+            print(af)
+            print(proto)
+            try:
+                client = STUNClient(af, (ip, port), nic, proto=proto, mode=RFC5389)
+                out = await client.get_wan_ip()
+                print(out)
+            except:
+                what_exception()
                 pass
+            """
+            pass
 
-            if service_type == STUN_CHANGE_TYPE and len(groups) == 4:
-                print("stun inside change type")
+        if service_type == STUN_CHANGE_TYPE and len(groups) == 4:
+            print("stun inside change type")
 
-                # Validates the relationship between 4 stun servers.
-                groups = list(reversed(groups))
-                print(groups)
-                print()
-                await validate_rfc3489_stun_server(
-                    af,
-                    proto,
-                    nic,
+            # Validates the relationship between 4 stun servers.
+            groups = list(reversed(groups))
+            print(groups)
+            print()
+            await validate_rfc3489_stun_server(
+                af,
+                proto,
+                nic,
 
-                    # IP, main port, secondary port
-                    (groups[0][4], groups[0][5], groups[1][5]),
-                    (groups[2][4], groups[2][5], groups[3][5]),
-                )
+                # IP, main port, secondary port
+                (groups[0][4], groups[0][5], groups[1][5]),
+                (groups[2][4], groups[2][5], groups[3][5]),
+            )
 
-                print("change servers validated")
+            print("change servers validated")
 
-            # Cleanup.
-            if chain_end:
-                print("chain end = ", chain_end)
-                groups = []
-                chain_end = False
+asyncio.run(worker())

@@ -54,7 +54,9 @@ async def get_work():
                 if row["fallback_id"] is None:
                     chain_end = True
 
+
                 status_row = await load_status_row(db, row["id"])
+                row["status"] = status_row
 
                 # If server hasn't been updated by a worker in over five mins.
                 # Assume worker has crashed and allow work to be reallocated.
@@ -63,12 +65,26 @@ async def get_work():
                     if elapsed >= WORKER_TIMEOUT:
                         status_row["status"] = STATUS_AVAILABLE
 
-                # Skip work already allocated.
-                if status_row["status"] != STATUS_AVAILABLE:
-                    continue
+                # Specific logic for stun change servers.
+                if len(groups) == 4:
+                    available = True
+                    for group in group:
+                        if group["status"]["status"] != STATUS_AVAILABLE:
+                            available = False
 
-                # Indicate this is allocated as work.
-                await update_status_dealt(db, status_row["id"])
+                    if available:
+                        for group in groups:
+                            # Indicate this is allocated as work.
+                            await update_status_dealt(db, row["status"]["id"])
+                    else:
+                        continue
+                else:
+                    # Skip work already allocated.
+                    if status_row["status"] != STATUS_AVAILABLE:
+                        continue
+
+                    # Indicate this is allocated as work.
+                    await update_status_dealt(db, status_row["id"])
 
                 # Return group info.
                 return groups
@@ -101,6 +117,12 @@ async def signal_complete_work(is_success: int, status_id: int):
 
     return []
 
+# Just for testing.
+@app.get("/freshdb")
+async def delete_all_rows():
+    async with aiosqlite.connect(DB_NAME) as db:
+        await delete_all_data(db)
+        await db.commit()
 
 @app.on_event("startup")
 async def main():

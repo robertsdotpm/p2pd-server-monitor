@@ -13,7 +13,7 @@ async def get_last_row_id(db, table_name):
         return row[0]
 
 async def delete_all_data(db):
-    for table in ("services", "aliases"):
+    for table in ("services", "aliases", "status"):
         sql = "DELETE FROM %s;" % (table)
         await db.execute(sql)
 
