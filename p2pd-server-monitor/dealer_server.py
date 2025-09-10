@@ -24,7 +24,7 @@ from fastapi import FastAPI
 from p2pd import *
 from .dealer_utils import *
 
-app = FastAPI()
+app = FastAPI(default_response_class=PrettyJSONResponse)
 
 @app.get("/work")
 async def get_work():

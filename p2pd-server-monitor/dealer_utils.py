@@ -1,8 +1,17 @@
 import asyncio
 import aiosqlite
+from fastapi.responses import JSONResponse
 from p2pd import *
 from .dealer_defs import *
 
+class PrettyJSONResponse(JSONResponse):
+    def render(self, content: any) -> bytes:
+        return json.dumps(
+            content,
+            ensure_ascii=False,
+            allow_nan=False,
+            indent=2,        # pretty-print here
+        ).encode("utf-8")
 
 async def get_last_row_id(db, table_name):
     sql = "SELECT max(id) FROM %s;" % (table_name)
