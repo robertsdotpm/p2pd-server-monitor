@@ -15,6 +15,8 @@ wll use pub bind for fastapi and for private calls reject non-local client src.
 API func that updates the IPs they point to -- get resolver stuff working tomorrow.
 
 could give out work based on supported AF stack of a worker.
+
+status now can be for a service or an alias
 """
 
 import asyncio
@@ -29,13 +31,9 @@ app = FastAPI(default_response_class=PrettyJSONResponse)
 @app.get("/work")
 async def get_work():
     sql = """
-    SELECT 
-        status.id AS status_id,
-        status.*,
-        services.*
+    SELECT *
     FROM status
-    JOIN services ON status.service_id = services.id
-    ORDER BY status.last_status ASC;
+    ORDER BY last_status ASC;
     """
     groups = []
     chain_end = False
@@ -46,15 +44,35 @@ async def get_work():
         async with db.execute(sql) as cursor:
             rows = await cursor.fetchall()
             rows = [dict(row) for row in rows]
-            print(rows)
             for row in rows:
+                row["status_id"] = row["id"]
+
+                # Load from alias or services.
+                ret = None
+                if row["service_id"] is not None:
+                    sql = "SELECT * FROM services WHERE id=?"
+                    async with db.execute(sql, (row["service_id"],)) as cursor:
+                        ret = dict(await cursor.fetchone())
+                if row["alias_id"] is not None:
+                    sql = "SELECT * FROM alias WHERE id=?"
+                    async with  db.execute(sql, (row["alias_id"],)) as cursor:
+                        ret = dict(await cursor.fetchone())
+
+                # Combine into row.
+                print(ret)
+                for k, v in ret.items():
+                    if k in row:
+                        continue
+
+                    row[k] = v
+
+                print(row)
+
                 # Convert back af and proto.
-                row["af"] = IP4 if row["af"] == 2 else IP6
-                row["proto"] = UDP if row["proto"] == 2 else TCP
                 groups.append(row)
 
                 # Build chain of groups based on fallback servers.
-                if row["fallback_id"] is None:
+                if not hasattr(row, "fallback_id") or row["fallback_id"] is None:
                     chain_end = True
 
                 # If server hasn't been updated by a worker in over five mins.
@@ -218,6 +236,10 @@ async def list_servers():
                         servers[service_type][proto][af] = rows
 
     return servers
+
+app.post("/alias")
+async def update_alias():
+    pass
 
 # Just for testing.
 @app.get("/freshdb")
