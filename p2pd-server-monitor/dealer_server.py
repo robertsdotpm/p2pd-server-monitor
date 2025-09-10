@@ -25,6 +25,8 @@ todo: dont give out work thats already too recent
 
 max uptime
 
+- actually -- lets make resolvers part of the service types to check and have an
+API func that updates the IPs they point to -- get resolver stuff working tomorrow.
 
 """
 
