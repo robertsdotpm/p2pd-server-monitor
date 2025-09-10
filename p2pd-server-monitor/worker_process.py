@@ -69,6 +69,9 @@ async def worker_loop():
             continue
 
         print(groups)
+        await asyncio.sleep(5)
+        continue
+
 
         # Carry out the work.
         try:

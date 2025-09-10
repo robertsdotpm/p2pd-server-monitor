@@ -34,6 +34,7 @@ async def insert_service(db, service_type, af, proto, ip, port, fb_id=None):
         sql,
         (service_type, af, proto, ip, port, fb_id,)
     ) as cursor:
+        await db.commit()
         return cursor.lastrowid
 
 async def is_unique_service(db, service_type, af, proto, ip, port):
@@ -88,14 +89,22 @@ async def record_service(db, service_type, af, proto, ip, port, fb_id=None):
     ret = await insert_service(db, service_type, af, proto, ip, port, fb_id)
     return ret
 
-async def init_status_row(db, service_id):
+async def init_status_row(db, service_id=None, alias_id=None):
+    schema = list(STATUS_SCHEMA[:])
+    if alias_id is not None:
+        schema[0] = "alias_id"
+        target_id = alias_id
+    else:
+        target_id = service_id
+
     # Parameterized insert
-    sql  = "INSERT INTO status (%s) VALUES " % (", ".join(STATUS_SCHEMA)) 
+    sql  = "INSERT INTO status (%s) VALUES " % (", ".join(schema)) 
     sql += "(?, ?, ?, ?, ?, ?)"
     async with await db.execute(
         sql,
-        (service_id, 0, int(time.time()), 0, 0, 0)
+        (target_id, 0, int(time.time()), 0, 0, 0)
     ) as cursor:
+        await db.commit()
         return cursor.lastrowid
     
 async def load_status_row(db, service_id):
@@ -109,25 +118,43 @@ async def update_status_dealt(db, status_id, t=None):
     await db.execute(sql, (STATUS_DEALT, t, status_id,))
     await db.commit()
 
+async def record_alias(db, fqn):
+    sql = "INSERT into aliases (fqn) VALUES (?)"
+    async with await db.execute(sql, (fqn,)) as cursor:
+        await db.commit()
+        return cursor.lastrowid
 
 async def insert_test_data(db):
     for groups in TEST_DATA:
         fallback_id = None
         for group in groups:
-            insert_id = await record_service(
-                db=db,
-                service_type=group[1],
-                af=group[2],
-                proto=group[3],
-                ip=group[4],
-                port=group[5],
-                fb_id=fallback_id
-            )
-            assert(insert_id is not None)
+            try:
+                insert_id = await record_service(
+                    db=db,
+                    service_type=group[1],
+                    af=group[2],
+                    proto=group[3],
+                    ip=group[4],
+                    port=group[5],
+                    fb_id=fallback_id
+                )
+                assert(insert_id is not None)
 
-            # Attach a status row.
-            status_id = await init_status_row(db, insert_id)
-            assert(status_id is not None)
+                # Attach a status row.
+                status_id = await init_status_row(db, service_id=insert_id)
+                assert(status_id is not None)
+            except:
+                log_exception()
+                continue
+
+            # Store alias(es)
+            print(group[0])
+            for fqn in group[0]:
+                alias_id = await record_alias(db, fqn)
+                print("alias_id = ", alias_id)
+                if alias_id is not None:
+                    await init_status_row(db, alias_id=alias_id)
+
 
             # Used for making chains of fallback servers.
             fallback_id  = insert_id

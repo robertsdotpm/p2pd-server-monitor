@@ -54,7 +54,7 @@ async def get_work():
                     async with db.execute(sql, (row["service_id"],)) as cursor:
                         ret = dict(await cursor.fetchone())
                 if row["alias_id"] is not None:
-                    sql = "SELECT * FROM alias WHERE id=?"
+                    sql = "SELECT * FROM aliases WHERE id=?"
                     async with  db.execute(sql, (row["alias_id"],)) as cursor:
                         ret = dict(await cursor.fetchone())
 

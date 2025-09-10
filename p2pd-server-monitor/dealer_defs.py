@@ -6,7 +6,7 @@ WORKER_TIMEOUT = 120
 MONITOR_FREQUENCY = 2
 MAX_SERVER_DOWNTIME = 600
 
-#####################################################################################
+####################################################################################
 SERVICE_SCHEMA = ("type", "af", "proto", "ip", "port", "fallback_id")
 STATUS_SCHEMA = ("service_id", "status", "last_status", "test_no")
 STATUS_SCHEMA += ("failed_tests", "last_success")
@@ -20,7 +20,7 @@ STATUS_AVAILABLE = 0
 STATUS_DEALT = 1
 
 
-#####################################################################################
+####################################################################################
 # groups .. group(s) ... fields inc list of fqns associated with it (maybe be blank)
 # type * af * proto * group_len = ...
 TEST_DATA = [
