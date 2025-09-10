@@ -195,13 +195,36 @@ async def list_servers():
                     END + 0.5)
             *
             -- Confidence factor
-            (1.0 - EXP(-CAST(status.test_no AS REAL)/50.0))
+            (1.0 - EXP(-CAST(status.test_no AS REAL) / 50.0))
         ) AS quality_score
     FROM status
     JOIN services ON status.service_id = services.id
+    WHERE services.type = ? AND services.proto = ? AND services.af = ?
     ORDER BY quality_score DESC;
     """
 
+    # build the server lists and return
+    service_types = [STUN_MAP_TYPE, STUN_CHANGE_TYPE, MQTT_TYPE, TURN_TYPE]
+    service_types += [NTP_TYPE]
+
+    servers = {}
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        for service_type in service_types:
+            servers[service_type] = {
+                UDP: {IP4: [], IP6: []},
+                TCP: {IP4: [], IP6: []}
+            }
+
+            for proto in [UDP, TCP]:
+                for af in [IP4, IP6]:
+                    params = (service_type, proto, af,)
+                    async with db.execute(sql, params) as cursor:
+                        rows = await cursor.fetchall()
+                        rows = [dict(row) for row in rows]
+                        servers[service_type][proto][af] = rows
+
+    return servers
 
 # Just for testing.
 @app.get("/freshdb")
