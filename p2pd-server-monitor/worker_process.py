@@ -16,7 +16,7 @@ async def worker(nic, groups):
             client = STUNClient(af, dest, nic, proto=proto, mode=RFC5389)
             out = await client.get_wan_ip()
             print(out)
-            status_ids.append(groups[0]["status"]["id"])
+            status_ids.append(groups[0]["status_id"])
         except:
             what_exception()
             is_success = 0
@@ -35,9 +35,12 @@ async def worker(nic, groups):
             nic,
 
             # IP, main port, secondary port
-            (groups[0]["ip"], groups[0]["port"], groups[1]["port"]),
-            (groups[2]["ip"], groups[2]["port"], groups[3]["port"]),
+            (groups[0]["ip"], groups[0]["port"], groups[1]["port"],),
+            (groups[2]["ip"], groups[2]["port"], groups[3]["port"],),
         )
+
+        for group in groups:
+            status_ids.append(group["status_id"])
 
         print("change servers validated")
     

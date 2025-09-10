@@ -1,17 +1,6 @@
 """
 I'll put notes here.
 
-Have some kind of uptime thing for servers based on
-    (failed_no / test_no) * 100
-    maybe have the fields wrap around so they dont eventually overflow idk
-
-have that linked list also add a db check that fallback_id < max(id)
-
-i think ill use nat test as the basis but avoid actually touching that code
-it works so 
-
-need to reuse pipe or change tests wont reach anywhere bound...
-
 BIG note: the STUN server validation code needs to run on a server without a NAT.
 
 copying change servers to map servers as-is means you could accidentally white list
@@ -21,13 +10,11 @@ should be in the map servers. this means that the current code is wrong.
 wll use pub bind for fastapi and for private calls reject non-local client src.
     add auth later on
 
-todo: dont give out work thats already too recent
-
-max uptime
 
 - actually -- lets make resolvers part of the service types to check and have an
 API func that updates the IPs they point to -- get resolver stuff working tomorrow.
 
+could give out work based on supported AF stack of a worker.
 """
 
 import asyncio
@@ -41,17 +28,25 @@ app = FastAPI()
 
 @app.get("/work")
 async def get_work():
+    sql = """
+    SELECT 
+        status.id AS status_id,
+        status.*,
+        services.*
+    FROM status
+    JOIN services ON status.service_id = services.id
+    ORDER BY status.last_status ASC;
+    """
     groups = []
     chain_end = False
     async with aiosqlite.connect(DB_NAME) as db:
         db.row_factory = aiosqlite.Row
 
         # Try fetch a row
-        async with db.execute("SELECT * FROM services ORDER BY id DESC;") as cursor:
+        async with db.execute(sql) as cursor:
             rows = await cursor.fetchall()
-            print(rows)
-
             rows = [dict(row) for row in rows]
+            print(rows)
             for row in rows:
                 # Convert back af and proto.
                 row["af"] = IP4 if row["af"] == 2 else IP6
@@ -62,16 +57,12 @@ async def get_work():
                 if row["fallback_id"] is None:
                     chain_end = True
 
-
-                status_row = await load_status_row(db, row["id"])
-                row["status"] = status_row
-
                 # If server hasn't been updated by a worker in over five mins.
                 # Assume worker has crashed and allow work to be reallocated.
-                elapsed = (int(time.time()) - status_row["last_status"]) 
-                if status_row["status"] == STATUS_DEALT:
+                elapsed = (int(time.time()) - row["last_status"]) 
+                if row["status"] == STATUS_DEALT:
                     if elapsed >= WORKER_TIMEOUT:
-                        status_row["status"] = STATUS_AVAILABLE
+                        row["status"] = STATUS_AVAILABLE
 
                 # Skip servers that were checked recently.
                 if elapsed < MONITOR_FREQUENCY:
@@ -81,7 +72,7 @@ async def get_work():
                 if len(groups) == 4:
                     available = True
                     for group in group:
-                        if group["status"]["status"] != STATUS_AVAILABLE:
+                        if group["status"] != STATUS_AVAILABLE:
                             available = False
 
                     if available:
@@ -89,16 +80,16 @@ async def get_work():
                         t = int(time.time())
                         for group in groups:
                             # Indicate this is allocated as work.
-                            await update_status_dealt(db, row["status"]["id"], t=t)
+                            await update_status_dealt(db, row["status_id"], t=t)
                     else:
                         continue
                 else:
                     # Skip work already allocated.
-                    if status_row["status"] != STATUS_AVAILABLE:
+                    if row["status"] != STATUS_AVAILABLE:
                         continue
 
                     # Indicate this is allocated as work.
-                    await update_status_dealt(db, status_row["id"])
+                    await update_status_dealt(db, row["status_id"])
 
                 # Return group info.
                 return groups
