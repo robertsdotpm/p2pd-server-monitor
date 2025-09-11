@@ -18,6 +18,8 @@ import asyncio
 import aiosqlite
 from typing import Union
 from fastapi import FastAPI
+import json
+import math
 from p2pd import *
 from .dealer_utils import *
 
@@ -30,97 +32,91 @@ async def get_work(stack_type: int = DUEL_STACK):
     else:
         need_af = stack_type if stack_type in VALID_AFS else "af"
 
-    sql = """
-    SELECT *
-    FROM status
-    ORDER BY last_status ASC;
-    """
-    groups = []
-    chain_end = False
     async with aiosqlite.connect(DB_NAME) as db:
         db.row_factory = aiosqlite.Row
 
-        # Try fetch a row
-        async with db.execute(sql) as cursor:
-            rows = await cursor.fetchall()
-            rows = [dict(row) for row in rows]
-            for row in rows:
-                row["status_id"] = row["id"]
+        # Step 1: fetch all status rows, oldest first
+        sql_status = """
+        SELECT *
+        FROM status
+        ORDER BY last_status ASC
+        """
+        async with db.execute(sql_status) as cursor:
+            status_entries = [dict(r) for r in await cursor.fetchall()]
 
-                # Load from alias or services.
-                ret = None
-                if row["service_id"] is not None:
-                    sql = "SELECT * FROM services WHERE id=? AND af=%s" % (need_af)
-                    async with db.execute(sql, (row["service_id"],)) as cursor:
-                        ret = dict(await cursor.fetchone())
-                if row["alias_id"] is not None:
-                    sql = "SELECT * FROM aliases WHERE id=? AND af=%s" % (need_af)
-                    async with  db.execute(sql, (row["alias_id"],)) as cursor:
-                        ret = dict(await cursor.fetchone())
+        current_time = int(time.time())
 
-                # Combine into row.
-                print(ret)
-                for k, v in ret.items():
-                    if k in row:
-                        continue
+        for status_entry in status_entries:
+            status_entry["status_id"] = status_entry["id"]
 
-                    row[k] = v
+            group_records = []
 
-                print(row)
+            # Step 2a: if this status row points to a service, load the whole service group + status
+            if status_entry["service_id"] is not None:
+                sql_service_group = """
+                SELECT services.*, status.id AS status_id, status.status,
+                        status.last_status, status.failed_tests, status.test_no,
+                        status.max_uptime, status.uptime, status.last_success
+                FROM services
+                LEFT JOIN status ON status.service_id = services.id
+                WHERE services.group_id = (
+                    SELECT group_id
+                    FROM services
+                    WHERE id=? AND af=?
+                    LIMIT 1
+                )
+                AND services.af=?
+                """
+                async with db.execute(sql_service_group, (status_entry["service_id"], need_af, need_af)) as cursor:
+                    group_records = [dict(r) for r in await cursor.fetchall()]
 
-                # Convert back af and proto.
-                groups.append(row)
+            # Step 2b: if this status row points to an alias, load the alias + status
+            elif status_entry["alias_id"] is not None:
+                sql_alias_group = """
+                SELECT aliases.*, status.id AS status_id, status.status,
+                        status.last_status, status.failed_tests, status.test_no,
+                        status.max_uptime, status.uptime, status.last_success
+                FROM aliases
+                LEFT JOIN status ON status.alias_id = aliases.id
+                WHERE aliases.id=? AND aliases.af=?
+                """
+                async with db.execute(sql_alias_group, (status_entry["alias_id"], need_af)) as cursor:
+                    alias_row = await cursor.fetchone()
+                    if alias_row:
+                        group_records = [dict(alias_row)]
 
-                # Build chain of groups based on fallback servers.
-                if not hasattr(row, "fallback_id") or row["fallback_id"] is None:
-                    chain_end = True
+            if not group_records:
+                continue
 
-                # If server hasn't been updated by a worker in over five mins.
-                # Assume worker has crashed and allow work to be reallocated.
-                elapsed = (int(time.time()) - row["last_status"]) 
-                if row["status"] == STATUS_DEALT:
-                    if elapsed >= WORKER_TIMEOUT:
-                        row["status"] = STATUS_AVAILABLE
+            # Step 3: ensure service_id and alias_id are set from the status entry
+            for record in group_records:
+                record["service_id"] = status_entry.get("service_id")
+                record["alias_id"] = status_entry.get("alias_id")
 
-                # Skip servers that were checked recently.
-                if elapsed < MONITOR_FREQUENCY:
+            # Step 4: allocation logic
+            allocatable_records = []
+            for record in group_records:
+                elapsed_since_last_status = current_time - (record["last_status"] or 0)
+
+                if record["status"] == STATUS_DEALT:
+                    if elapsed_since_last_status >= WORKER_TIMEOUT:
+                        record["status"] = STATUS_AVAILABLE
+
+                if elapsed_since_last_status < MONITOR_FREQUENCY:
                     continue
 
-                # Specific logic for stun change servers.
-                if len(groups) == 4:
-                    available = True
-                    for group in group:
-                        if group["status"] != STATUS_AVAILABLE:
-                            available = False
+                if record["status"] == STATUS_AVAILABLE:
+                    allocatable_records.append(record)
 
-                    if available:
-                        # Make all in group have same status time.
-                        t = int(time.time())
-                        for group in groups:
-                            # Indicate this is allocated as work.
-                            await update_status_dealt(db, row["status_id"], t=t)
-                    else:
-                        continue
-                else:
-                    # Skip work already allocated.
-                    if row["status"] != STATUS_AVAILABLE:
-                        continue
-
-                    # Indicate this is allocated as work.
-                    await update_status_dealt(db, row["status_id"])
-
-                # Return group info.
-                return groups
-
-                print(status_row)
-
-                # Cleanup.
-                if chain_end:
-                    print("chain end = ", chain_end)
-                    groups = []
-                    chain_end = False
+            if allocatable_records:
+                # Step 5: mark group as allocated
+                allocation_time = int(time.time())
+                for record in allocatable_records:
+                    await update_status_dealt(db, record["status_id"], t=allocation_time)
+                return allocatable_records
 
     return []
+
 
 # TODO change to post later.
 @app.get("/complete")
@@ -193,60 +189,85 @@ async def signal_complete_work(is_success: int, status_id: int, t: int):
 #Show a listing of servers based on quality
 @app.get("/servers")
 async def list_servers():
-    sql = """
-    SELECT 
-        status.*, 
-        services.*, 
-        (
-            -- Reliability
-            (1.0 - CAST(status.failed_tests AS REAL) / (status.test_no + 1e-9))
-            *
-            -- Uptime ratio, fallback to 0.5 if max_uptime is zero
-            (0.5 * CASE WHEN status.max_uptime > 0 
-                        THEN status.uptime / status.max_uptime 
-                        ELSE 1.0
-                    END + 0.5)
-            *
-            -- Confidence factor
-            (1.0 - EXP(-CAST(status.test_no AS REAL) / 50.0))
-        ) AS quality_score,
-        -- Aggregate aliases into a comma-separated string
-        (
-            SELECT GROUP_CONCAT(fqn)
-            FROM aliases
-            WHERE aliases.ip = services.ip AND aliases.af = services.af
-        ) AS aliases
-    FROM status
-    JOIN services ON status.service_id = services.id
-    WHERE status.service_id IS NOT NULL
-        AND services.type = ? 
-        AND services.proto = ? 
-        AND services.af = ?
-    ORDER BY quality_score DESC;
-    """
-
-    # build the server lists and return
-    service_types = [STUN_MAP_TYPE, STUN_CHANGE_TYPE, MQTT_TYPE, TURN_TYPE]
-    service_types += [NTP_TYPE]
-
+    service_types = [STUN_MAP_TYPE, STUN_CHANGE_TYPE, MQTT_TYPE, TURN_TYPE, NTP_TYPE]
+    protocols = [UDP, TCP]
+    address_families = [IP4, IP6]
     servers = {}
+
     async with aiosqlite.connect(DB_NAME) as db:
         db.row_factory = aiosqlite.Row
-        for service_type in service_types:
-            servers[service_type] = {
-                UDP: {IP4: [], IP6: []},
-                TCP: {IP4: [], IP6: []}
-            }
 
-            for proto in [UDP, TCP]:
-                for af in [IP4, IP6]:
-                    params = (service_type, proto, af,)
-                    async with db.execute(sql, params) as cursor:
-                        rows = await cursor.fetchall()
-                        rows = [dict(row) for row in rows]
-                        servers[service_type][proto][af] = rows
+        for service_type in service_types:
+            servers[service_type] = {proto: {af: [] for af in address_families} for proto in protocols}
+
+            for proto in protocols:
+                for af in address_families:
+                    sql = """
+                    WITH server_scores AS (
+                        SELECT
+                            services.group_id,
+                            services.id AS service_id,
+                            services.ip,
+                            services.af,
+                            services.proto,
+                            services.type,
+                            status.id AS status_id,
+                            status.failed_tests,
+                            status.test_no,
+                            status.uptime,
+                            status.max_uptime,
+                            status.last_status,
+                            (
+                                (1.0 - CAST(status.failed_tests AS REAL) / (status.test_no + 1e-9))
+                                *
+                                (0.5 * CASE WHEN status.max_uptime > 0 THEN status.uptime / status.max_uptime ELSE 1.0 END + 0.5)
+                                *
+                                (1.0 - EXP(-CAST(status.test_no AS REAL) / 50.0))
+                            ) AS quality_score,
+                            (
+                                SELECT GROUP_CONCAT(fqn)
+                                FROM aliases
+                                WHERE aliases.ip = services.ip AND aliases.af = services.af
+                            ) AS aliases
+                        FROM services
+                        JOIN status ON status.service_id = services.id
+                        WHERE services.type = ?
+                            AND services.proto = ?
+                            AND services.af = ?
+                    )
+                    SELECT 
+                        group_id,
+                        AVG(quality_score) AS group_score,
+                        json_group_array(
+                            json_object(
+                                'service_id', service_id,
+                                'status_id', status_id,
+                                'ip', ip,
+                                'af', af,
+                                'proto', proto,
+                                'type', type,
+                                'quality_score', quality_score,
+                                'aliases', aliases
+                            )
+                            ORDER BY service_id ASC
+                        ) AS servers
+                    FROM server_scores
+                    GROUP BY group_id
+                    ORDER BY group_score DESC;
+                    """
+
+                    async with db.execute(sql, (service_type, proto, af)) as cursor:
+                        rows = [dict(r) for r in await cursor.fetchall()]
+
+                    # Convert JSON arrays of servers to Python lists
+                    for row in rows:
+                        row['servers'] = json.loads(row['servers'])
+
+                    # Assign the list of groups to the nested structure
+                    servers[service_type][proto][af] = [row['servers'] for row in rows]
 
     return servers
+
 
 @app.get("/alias")
 async def update_alias(alias_id: int, ip: str):

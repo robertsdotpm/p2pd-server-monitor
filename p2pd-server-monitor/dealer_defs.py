@@ -7,7 +7,7 @@ MONITOR_FREQUENCY = 2
 MAX_SERVER_DOWNTIME = 600
 
 ####################################################################################
-SERVICE_SCHEMA = ("type", "af", "proto", "ip", "port", "fallback_id")
+SERVICE_SCHEMA = ("type", "af", "proto", "ip", "port", "group_id")
 STATUS_SCHEMA = ("service_id", "status", "last_status", "test_no")
 STATUS_SCHEMA += ("failed_tests", "last_success")
 STUN_MAP_TYPE = 1

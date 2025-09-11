@@ -26,13 +26,13 @@ async def delete_all_data(db):
         sql = "DELETE FROM %s;" % (table)
         await db.execute(sql)
 
-async def insert_service(db, service_type, af, proto, ip, port, fb_id=None):
+async def insert_service(db, service_type, af, proto, ip, port, group_id):
     # Parameterized insert
     sql  = "INSERT INTO services (%s) VALUES " % (", ".join(SERVICE_SCHEMA)) 
     sql += "(?, ?, ?, ?, ?, ?)"
     async with await db.execute(
         sql,
-        (service_type, af, proto, ip, port, fb_id,)
+        (service_type, af, proto, ip, port, group_id,)
     ) as cursor:
         await db.commit()
         return cursor.lastrowid
@@ -51,10 +51,9 @@ async def is_unique_service(db, service_type, af, proto, ip, port):
         rows = await cursor.fetchall()
         return not len(rows)
     
-    
 # Validation here.
 # Don't expose fallback_id directly in public APIs -- grouped service API though.
-async def record_service(db, service_type, af, proto, ip, port, fb_id=None):
+async def record_service(db, service_type, af, proto, ip, port, group_id, offset=0):
     if not in_range(service_type, [1, 5]):
         raise Exception("Invalid service type for record")
     
@@ -73,9 +72,9 @@ async def record_service(db, service_type, af, proto, ip, port, fb_id=None):
         raise Exception("remote port for record service invalid.")
     
     # Check uniqueness.
-    is_unq = await is_unique_service(db, service_type, af, proto, ip, port)
-    if not is_unq:
-        raise Exception("service already inserted.")
+    #is_unq = await is_unique_service(db, service_type, af, proto, ip, port)
+    #if not is_unq:
+    #    raise Exception("service already inserted.")
 
     """
     Some 'public' STUN servers like to point to private
@@ -86,7 +85,7 @@ async def record_service(db, service_type, af, proto, ip, port, fb_id=None):
         raise Exception("ip is private for record service")
         
     # Insert the service.
-    ret = await insert_service(db, service_type, af, proto, ip, port, fb_id)
+    ret = await insert_service(db, service_type, af, proto, ip, port, group_id)
     return ret
 
 async def init_status_row(db, service_id=None, alias_id=None):
@@ -126,7 +125,7 @@ async def record_alias(db, af, fqn):
 
 async def insert_test_data(db):
     for groups in TEST_DATA:
-        fallback_id = None
+        group_id = 0
         for group in groups:
             try:
                 insert_id = await record_service(
@@ -136,7 +135,7 @@ async def insert_test_data(db):
                     proto=group[3],
                     ip=group[4],
                     port=group[5],
-                    fb_id=fallback_id
+                    group_id=group_id
                 )
                 assert(insert_id is not None)
 
@@ -158,5 +157,4 @@ async def insert_test_data(db):
                     log_exception()
                     continue
 
-            # Used for making chains of fallback servers.
-            fallback_id  = insert_id
+        group_id += 1

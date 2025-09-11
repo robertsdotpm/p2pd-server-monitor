@@ -66,6 +66,8 @@ async def worker_loop():
         else:
             groups = json.loads(to_s(resp.out))
 
+        print(groups)
+
         # If there's no work -- sleep and continue.
         if not len(groups):
             print("no work ready ... sleeping.")
