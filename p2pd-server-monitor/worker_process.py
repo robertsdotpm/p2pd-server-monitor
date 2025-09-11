@@ -82,6 +82,7 @@ async def worker_loop():
                 is_success, status_ids = await service_worker(nic, groups)
             except:
                 print("Worker process exception.")
+                what_exception()
                 log_exception()
                 await asyncio.sleep(5)
                 continue

@@ -26,8 +26,20 @@ STATUS_DEALT = 1
 TEST_DATA = [
     [
         [
-            ["stun.hot-chilli.net", "alias2.lan"],
-            STUN_MAP_TYPE, V4, SOCK_DGRAM, "49.12.125.53", 3478
+            ["stun.hot-chilli.net"],
+            STUN_CHANGE_TYPE, V4, SOCK_DGRAM, "49.12.125.53", 3478
+        ],
+        [
+            ["stun.hot-chilli.net"],
+            STUN_CHANGE_TYPE, V4, SOCK_DGRAM, "49.12.125.53", 3479
+        ],
+        [
+            [],
+            STUN_CHANGE_TYPE, V4, SOCK_DGRAM, "49.12.125.24", 3478
+        ],
+        [
+            [],
+            STUN_CHANGE_TYPE, V4, SOCK_DGRAM, "49.12.125.24", 3479
         ],
     ],
 ]
