@@ -12,6 +12,7 @@ wll use pub bind for fastapi and for private calls reject non-local client src.
 
 norm ip vals
 exp backoff based on service downtime
+avoid having all the checks occur at the same time even if the threshold is met
 """
 
 import asyncio
