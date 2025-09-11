@@ -8,7 +8,10 @@ a change server address by checking a wan ip, thus, only the primary address
 should be in the map servers. this means that the current code is wrong.
 
 wll use pub bind for fastapi and for private calls reject non-local client src.
-    add auth later on
+    add auth later on7
+
+norm ip vals
+exp backoff based on service downtime
 """
 
 import asyncio
@@ -215,7 +218,10 @@ async def list_servers():
         ) AS aliases
     FROM status
     JOIN services ON status.service_id = services.id
-    WHERE services.type = ? AND services.proto = ? AND services.af = ?
+    WHERE status.service_id IS NOT NULL
+        AND services.type = ? 
+        AND services.proto = ? 
+        AND services.af = ?
     ORDER BY quality_score DESC;
     """
 
