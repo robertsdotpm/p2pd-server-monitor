@@ -9,14 +9,6 @@ should be in the map servers. this means that the current code is wrong.
 
 wll use pub bind for fastapi and for private calls reject non-local client src.
     add auth later on
-
-
-- actually -- lets make resolvers part of the service types to check and have an
-API func that updates the IPs they point to -- get resolver stuff working tomorrow.
-
-could give out work based on supported AF stack of a worker.
-
-status now can be for a service or an alias
 """
 
 import asyncio
@@ -196,7 +188,6 @@ async def signal_complete_work(is_success: int, status_id: int, t: int):
     return []
 
 #Show a listing of servers based on quality
-# TODO: get list of aliases based on ip + af match.
 @app.get("/servers")
 async def list_servers():
     sql = """
