@@ -119,7 +119,7 @@ async def update_status_dealt(db, status_id, t=None):
     await db.commit()
 
 async def record_alias(db, af, proto, fqn):
-    sql = "INSERT into aliases (af, proto, fqn) VALUES (?)"
+    sql = "INSERT into aliases (af, proto, fqn) VALUES (?, ?, ?)"
     async with await db.execute(sql, (af, proto, fqn,)) as cursor:
         await db.commit()
         return cursor.lastrowid

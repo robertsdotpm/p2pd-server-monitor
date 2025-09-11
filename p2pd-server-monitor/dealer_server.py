@@ -29,7 +29,12 @@ from .dealer_utils import *
 app = FastAPI(default_response_class=PrettyJSONResponse)
 
 @app.get("/work")
-async def get_work():
+async def get_work(stack_type: int = DUEL_STACK):
+    if stack_type == DUEL_STACK:
+        need_af = "af"
+    else:
+        need_af = stack_type if stack_type in VALID_AFS else "af"
+
     sql = """
     SELECT *
     FROM status
@@ -50,11 +55,11 @@ async def get_work():
                 # Load from alias or services.
                 ret = None
                 if row["service_id"] is not None:
-                    sql = "SELECT * FROM services WHERE id=?"
+                    sql = "SELECT * FROM services WHERE id=? AND af=%s" % (need_af)
                     async with db.execute(sql, (row["service_id"],)) as cursor:
                         ret = dict(await cursor.fetchone())
                 if row["alias_id"] is not None:
-                    sql = "SELECT * FROM aliases WHERE id=?"
+                    sql = "SELECT * FROM aliases WHERE id=? AND af=%s" % (need_af)
                     async with  db.execute(sql, (row["alias_id"],)) as cursor:
                         ret = dict(await cursor.fetchone())
 

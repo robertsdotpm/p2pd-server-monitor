@@ -55,7 +55,7 @@ async def worker_loop():
         print("Fetching work... ")
 
         # Fetch work from dealer server.
-        resp = await curl.vars().get("/work")
+        resp = await curl.vars({"stack_type": int(nic.stack)}).get("/work")
         if resp.info is None:
             await asyncio.sleep(5)
             continue
