@@ -196,10 +196,13 @@ async def signal_complete_work(is_success: int, status_id: int, t: int):
     return []
 
 #Show a listing of servers based on quality
+# TODO: get list of aliases based on ip + af match.
 @app.get("/servers")
 async def list_servers():
     sql = """
-    SELECT status.*, services.*, 
+    SELECT 
+        status.*, 
+        services.*, 
         (
             -- Reliability
             (1.0 - CAST(status.failed_tests AS REAL) / (status.test_no + 1e-9))
@@ -212,7 +215,13 @@ async def list_servers():
             *
             -- Confidence factor
             (1.0 - EXP(-CAST(status.test_no AS REAL) / 50.0))
-        ) AS quality_score
+        ) AS quality_score,
+        -- Aggregate aliases into a comma-separated string
+        (
+            SELECT GROUP_CONCAT(fqn)
+            FROM aliases
+            WHERE aliases.ip = services.ip AND aliases.af = services.af
+        ) AS aliases
     FROM status
     JOIN services ON status.service_id = services.id
     WHERE services.type = ? AND services.proto = ? AND services.af = ?
@@ -242,9 +251,19 @@ async def list_servers():
 
     return servers
 
-app.post("/alias")
-async def update_alias():
-    pass
+@app.get("/alias")
+async def update_alias(alias_id: int, ip: str):
+    async with aiosqlite.connect(DB_NAME) as db:
+        sql = """
+        UPDATE aliases
+        SET ip = ?
+        WHERE id = ?;
+        """
+        await db.execute(sql, (ip, alias_id,))
+        await db.commit()
+
+    return [alias_id]
+
 
 # Just for testing.
 @app.get("/freshdb")

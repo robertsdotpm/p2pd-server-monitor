@@ -118,9 +118,9 @@ async def update_status_dealt(db, status_id, t=None):
     await db.execute(sql, (STATUS_DEALT, t, status_id,))
     await db.commit()
 
-async def record_alias(db, af, proto, fqn):
-    sql = "INSERT into aliases (af, proto, fqn) VALUES (?, ?, ?)"
-    async with await db.execute(sql, (af, proto, fqn,)) as cursor:
+async def record_alias(db, af, fqn):
+    sql = "INSERT into aliases (af, fqn) VALUES (?, ?)"
+    async with await db.execute(sql, (af, fqn,)) as cursor:
         await db.commit()
         return cursor.lastrowid
 
@@ -150,7 +150,7 @@ async def insert_test_data(db):
             # Store alias(es)
             for fqn in group[0]:
                 try:
-                    alias_id = await record_alias(db, group[2], group[3], fqn)
+                    alias_id = await record_alias(db, group[2], fqn)
                     print("alias_id = ", alias_id)
                     if alias_id is not None:
                         await init_status_row(db, alias_id=alias_id)

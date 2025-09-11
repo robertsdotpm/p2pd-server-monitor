@@ -4,7 +4,7 @@ from p2pd import *
 from .dealer_defs import *
 from .worker_utils import *
 
-async def worker(nic, groups):
+async def service_worker(nic, groups):
     single_group = len(groups) == 1
     status_ids = []
     af = IP4 if groups[0]["af"] == 2 else IP6
@@ -46,6 +46,10 @@ async def worker(nic, groups):
     
     return is_success, status_ids
 
+async def alias_worker(nic, groups):
+    addr = await Address(groups[0]["fqn"], 80, nic)
+    return addr.select_ip(groups[0]["af"]).ip
+
 async def worker_loop():
     nic = await Interface()
     endpoint = ("127.0.0.1", 8000,)
@@ -68,19 +72,27 @@ async def worker_loop():
             await asyncio.sleep(5)
             continue
 
-        print(groups)
-        await asyncio.sleep(5)
-        continue
+        is_success = False
+        status_ids = []
+        if groups[0]["service_id"] is not None:
+            # Carry out the work.
+            try:
+                is_success, status_ids = await service_worker(nic, groups)
+            except:
+                print("Worker process exception.")
+                log_exception()
+                await asyncio.sleep(5)
+                continue
+        else:
+            ip = await alias_worker(nic, groups)
+            print("ip = ", ip)
+            if ip is not None:
+                is_success = True
+                status_ids = [groups[0]["status_id"]]
+                params = {"alias_id": groups[0]["alias_id"], "ip": ip}
+                await curl.vars(params).get("/alias")
 
 
-        # Carry out the work.
-        try:
-            is_success, status_ids = await worker(nic, groups)
-        except:
-            print("Worker process exception.")
-            log_exception()
-            await asyncio.sleep(5)
-            continue
 
         print("is success = ", is_success)
         print("status ids = ", status_ids)
