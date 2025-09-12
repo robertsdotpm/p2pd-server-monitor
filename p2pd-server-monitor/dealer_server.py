@@ -16,9 +16,9 @@ avoid having all the checks occur at the same time even if the threshold is met
 
 -- test code to import an ip into imports table
     -- work code for that to discover server
--- then actually process all ips and service types to import for the DB (boring)
 
-taking a break for today
+-- then actually process all ips and service types to import for the DB (boring)
+-- write unit tests
 """
 
 import asyncio
@@ -43,12 +43,12 @@ async def get_work(stack_type: int = DUEL_STACK):
         db.row_factory = aiosqlite.Row
 
         # Step 1: fetch all status rows, oldest first
-        sql_status = """
+        sql = """
         SELECT *
         FROM status
         ORDER BY last_status ASC
         """
-        async with db.execute(sql_status) as cursor:
+        async with db.execute(sql) as cursor:
             status_entries = [dict(r) for r in await cursor.fetchall()]
 
         current_time = int(time.time())
@@ -56,14 +56,15 @@ async def get_work(stack_type: int = DUEL_STACK):
             status_entry["status_id"] = status_entry["id"]
             group_records = []
 
-            # Step 2a: if this status row points to a service, load the whole service group + status
-            if status_entry["service_id"] is not None:
-                sql_service_group = """
+            # Step 2a: Load services row
+            if status_entry["table_type"] == SERVICES_TABLE_TYPE:
+                sql = """
                 SELECT services.*, status.id AS status_id, status.status,
                         status.last_status, status.failed_tests, status.test_no,
-                        status.max_uptime, status.uptime, status.last_success
+                        status.max_uptime, status.uptime, status.last_success,
+                        status.table_type, status.row_id
                 FROM services
-                LEFT JOIN status ON status.service_id = services.id
+                LEFT JOIN status ON status.row_id = services.id
                 WHERE services.group_id = (
                     SELECT group_id
                     FROM services
@@ -72,20 +73,49 @@ async def get_work(stack_type: int = DUEL_STACK):
                 )
                 AND services.af=?
                 """
-                async with db.execute(sql_service_group, (status_entry["service_id"], need_af, need_af)) as cursor:
+
+                params = (status_entry["row_id"], need_af, need_af,)
+                async with db.execute(sql, params) as cursor:
                     group_records = [dict(r) for r in await cursor.fetchall()]
 
-            # Step 2b: if this status row points to an alias, load the alias + status
-            elif status_entry["alias_id"] is not None:
-                sql_alias_group = """
+            # Step 2b: if this status row points to an alias, load alias + status
+            elif status_entry["table_type"] == ALIASES_TABLE_TYPE:
+                sql = """
                 SELECT aliases.*, status.id AS status_id, status.status,
                         status.last_status, status.failed_tests, status.test_no,
-                        status.max_uptime, status.uptime, status.last_success
+                        status.max_uptime, status.uptime, status.last_success,
+                        status.table_type, status.row_id
                 FROM aliases
-                LEFT JOIN status ON status.alias_id = aliases.id
+                LEFT JOIN status ON status.row_id = aliases.id
                 WHERE aliases.id=? AND aliases.af=?
                 """
-                async with db.execute(sql_alias_group, (status_entry["alias_id"], need_af)) as cursor:
+
+                params = (status_entry["row_id"], need_af,)
+                async with db.execute(sql, params) as cursor:
+                    alias_row = await cursor.fetchone()
+                    if alias_row:
+                        group_records = [dict(alias_row)]
+
+            # Step 2c: if it points to an imports record.
+            elif status_entry["table_type"] == IMPORTS_TABLE_TYPE:
+                sql = """
+                SELECT imports.*, 
+                    status.id AS status_id, 
+                    status.status,
+                    status.last_status, 
+                    status.failed_tests, 
+                    status.test_no,
+                    status.max_uptime, 
+                    status.uptime, 
+                    status.last_success,
+                    status.table_type, status.row_id
+                FROM imports
+                LEFT JOIN status ON status.row_id = imports.id
+                WHERE imports.id = ? AND imports.af = ?;
+                """
+
+                params = (status_entry["row_id"], need_af,)
+                async with db.execute(sql, params) as cursor:
                     alias_row = await cursor.fetchone()
                     if alias_row:
                         group_records = [dict(alias_row)]
@@ -93,46 +123,67 @@ async def get_work(stack_type: int = DUEL_STACK):
             if not group_records:
                 continue
 
-            # Step 3: ensure service_id and alias_id are set from the status entry
-            for record in group_records:
-                record["service_id"] = status_entry.get("service_id")
-                record["alias_id"] = status_entry.get("alias_id")
-
-            # Step 4: allocation logic
+            # Step 3: allocation logic
             allocatable_records = []
             for record in group_records:
-                elapsed_since_last_status = current_time - (record["last_status"] or 0)
+                elapsed_since_status = current_time - (record["last_status"] or 0)
                 if record["status"] == STATUS_DEALT:
-                    if elapsed_since_last_status >= WORKER_TIMEOUT:
+                    if elapsed_since_status >= WORKER_TIMEOUT:
                         record["status"] = STATUS_AVAILABLE
                     else:
                         # Everthing in a group needs to be allocated at once.
                         break
 
-                if elapsed_since_last_status < MONITOR_FREQUENCY:
+                if elapsed_since_status < MONITOR_FREQUENCY:
                     break
 
                 if record["status"] == STATUS_AVAILABLE:
                     allocatable_records.append(record)
 
             if allocatable_records:
-                # Step 5: mark group as allocated
+                # Step 4: mark group as allocated
                 allocation_time = int(time.time())
                 for record in allocatable_records:
-                    await update_status_dealt(db, record["status_id"], t=allocation_time)
+                    await update_status_dealt(
+                        db, 
+                        record["status_id"],
+                        t=allocation_time
+                    )
 
                 return allocatable_records
 
     return []
 
-# TODO change to post later.
 @app.get("/complete")
 async def signal_complete_work(is_success: int, status_id: int, t: int):
     """
     For uptime -- keep incrementing uptime field as long as its success.
     However, if last_success time reaches a threshold consider the server offline.
     """
+
+    print("in complete")
+    print("status id = ", status_id)
+
     async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+
+        try:
+            # Delete the associated imports row and status record.
+            row = await load_status_row(db, status_id)
+            print("load status row = ", row)
+
+            if row["table_type"] == IMPORTS_TABLE_TYPE:
+                sql = "DELETE FROM imports WHERE id = ?"
+                await db.execute(sql, (row["row_id"],))
+
+                sql = "DELETE FROM status WHERE id = ?"
+                await db.execute(sql, (status_id,))
+
+                await db.commit()
+                return []
+        except:
+            what_exception()
+
         if is_success:
             # Update uptime.
             sql = """
@@ -237,7 +288,8 @@ async def list_servers():
                                 WHERE aliases.ip = services.ip AND aliases.af = services.af
                             ) AS aliases
                         FROM services
-                        JOIN status ON status.service_id = services.id
+                        JOIN status ON status.table_type = ? AND
+                        status.row_id = services.id
                         WHERE services.type = ?
                             AND services.proto = ?
                             AND services.af = ?
@@ -263,7 +315,8 @@ async def list_servers():
                     ORDER BY group_score DESC;
                     """
 
-                    async with db.execute(sql, (service_type, proto, af)) as cursor:
+                    params = (SERVICES_TABLE_TYPE, service_type, proto, af,)
+                    async with db.execute(sql, params) as cursor:
                         rows = [dict(r) for r in await cursor.fetchall()]
 
                     # Convert JSON arrays of servers to Python lists
@@ -309,7 +362,7 @@ async def main():
     params = (1, V4, 1, "127.0.0.1", 80, None)
     async with aiosqlite.connect(DB_NAME) as db:
         await delete_all_data(db)
-        await insert_test_data(db)
+        await insert_imports_test_data(db)
         #await get_last_row_id(db, "services")
         #await delete_all_data(db)
         await db.commit()

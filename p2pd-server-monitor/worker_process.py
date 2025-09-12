@@ -47,6 +47,9 @@ async def alias_worker(nic, groups):
     addr = await Address(groups[0]["fqn"], 80, nic)
     return addr.select_ip(groups[0]["af"]).ip
 
+async def import_worker(nic, group):
+    print(group)
+
 async def worker_loop():
     nic = await Interface()
     endpoint = ("127.0.0.1", 8000,)
@@ -75,9 +78,16 @@ async def worker_loop():
             await asyncio.sleep(5)
             continue
 
-        is_success = False
+
+        is_success = 0
         status_ids = []
-        if groups[0]["service_id"] is not None:
+
+        if groups[0]["table_type"] == IMPORTS_TABLE_TYPE:
+            is_success = 1
+            status_ids = [groups[0]["status_id"]]
+            await import_worker(nic, groups[0])
+
+        if groups[0]["table_type"] == SERVICES_TABLE_TYPE:
             # Carry out the work.
             try:
                 is_success, status_ids = await service_worker(nic, groups)
@@ -87,13 +97,14 @@ async def worker_loop():
                 log_exception()
                 await asyncio.sleep(5)
                 continue
-        else:
+        
+        if groups[0]["table_type"] == ALIASES_TABLE_TYPE:
             ip = await alias_worker(nic, groups)
             print("ip = ", ip)
             if ip is not None:
-                is_success = True
+                is_success = 1
                 status_ids = [groups[0]["status_id"]]
-                params = {"alias_id": groups[0]["alias_id"], "ip": ip}
+                params = {"alias_id": groups[0]["row_id"], "ip": ip}
                 await curl.vars(params).get("/alias")
 
 

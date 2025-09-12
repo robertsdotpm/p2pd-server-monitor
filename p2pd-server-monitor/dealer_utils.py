@@ -22,7 +22,7 @@ async def get_last_row_id(db, table_name):
         return row[0]
 
 async def delete_all_data(db):
-    for table in ("services", "aliases", "status"):
+    for table in ("services", "aliases", "status", "imports"):
         sql = "DELETE FROM %s;" % (table)
         await db.execute(sql)
 
@@ -88,28 +88,22 @@ async def record_service(db, service_type, af, proto, ip, port, group_id, offset
     ret = await insert_service(db, service_type, af, proto, ip, port, group_id)
     return ret
 
-async def init_status_row(db, service_id=None, alias_id=None):
-    schema = list(STATUS_SCHEMA[:])
-    if alias_id is not None:
-        schema[0] = "alias_id"
-        target_id = alias_id
-    else:
-        target_id = service_id
-
+async def init_status_row(db, row_id, table_type):
     # Parameterized insert
-    sql  = "INSERT INTO status (%s) VALUES " % (", ".join(schema)) 
-    sql += "(?, ?, ?, ?, ?, ?)"
+    sql  = "INSERT INTO status (%s) VALUES " % (", ".join(STATUS_SCHEMA)) 
+    sql += "(?, ?, ?, ?, ?, ?, ?)"
     async with await db.execute(
         sql,
-        (target_id, 0, int(time.time()), 0, 0, 0)
+        (row_id, table_type, 0, int(time.time()), 0, 0, 0)
     ) as cursor:
         await db.commit()
         return cursor.lastrowid
     
-async def load_status_row(db, service_id):
+async def load_status_row(db, status_id):
     sql = "SELECT * FROM status WHERE id=?"
-    async with db.execute(sql, (service_id,)) as cursor:
-        return dict(await cursor.fetchone())
+    async with db.execute(sql, (status_id,)) as cursor:
+        row = await cursor.fetchone()
+        return dict(row) if row else None
     
 async def update_status_dealt(db, status_id, t=None):
     t = t or int(time.time())
@@ -123,7 +117,7 @@ async def record_alias(db, af, fqn):
         await db.commit()
         return cursor.lastrowid
 
-async def insert_test_data(db):
+async def insert_services_test_data(db):
     for groups in TEST_DATA:
         group_id = 0
         for group in groups:
@@ -140,7 +134,7 @@ async def insert_test_data(db):
                 assert(insert_id is not None)
 
                 # Attach a status row.
-                status_id = await init_status_row(db, service_id=insert_id)
+                status_id = await init_status_row(db, insert_id, SERVICES_TABLE_TYPE)
                 assert(status_id is not None)
             except:
                 log_exception()
@@ -152,9 +146,22 @@ async def insert_test_data(db):
                     alias_id = await record_alias(db, group[2], fqn)
                     print("alias_id = ", alias_id)
                     if alias_id is not None:
-                        await init_status_row(db, alias_id=alias_id)
+                        await init_status_row(db, alias_id, ALIASES_TABLE_TYPE)
                 except:
                     log_exception()
                     continue
 
         group_id += 1
+
+async def insert_imports_test_data(db):
+    sql  = "INSERT INTO imports (type, af, ip, port, user, pass)"
+    sql += "VALUES (?, ?, ?, ?, ?, ?)"
+    for info in IMPORTS_TEST_DATA:
+        try:
+            async with await db.execute(sql, info[1:]) as cursor:
+                await db.commit()
+                await init_status_row(db, cursor.lastrowid, IMPORTS_TABLE_TYPE)
+        except:
+            log_exception()
+            continue
+
