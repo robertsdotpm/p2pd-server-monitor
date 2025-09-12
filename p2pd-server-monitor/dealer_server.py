@@ -102,6 +102,9 @@ async def get_work(stack_type: int = DUEL_STACK):
                 if record["status"] == STATUS_DEALT:
                     if elapsed_since_last_status >= WORKER_TIMEOUT:
                         record["status"] = STATUS_AVAILABLE
+                    else:
+                        # Everthing in a group list needs to be allocated at once.
+                        break
 
                 if elapsed_since_last_status < MONITOR_FREQUENCY:
                     continue
@@ -114,6 +117,7 @@ async def get_work(stack_type: int = DUEL_STACK):
                 allocation_time = int(time.time())
                 for record in allocatable_records:
                     await update_status_dealt(db, record["status_id"], t=allocation_time)
+
                 return allocatable_records
 
     return []

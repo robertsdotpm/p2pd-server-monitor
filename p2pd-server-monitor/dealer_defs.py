@@ -1,7 +1,7 @@
 from p2pd import SOCK_DGRAM, SOCK_STREAM, V4, V6
 
 # Placeholder -- fix this.
-DB_NAME = "/home/x/Desktop/projects/p2pd-server-monitor/p2pd-server-monitor/monitor.sqlite3"
+DB_NAME = "/home/debian/monitor/p2pd-server-monitor/p2pd-server-monitor/monitor.sqlite3"
 WORKER_TIMEOUT = 120
 MONITOR_FREQUENCY = 2
 MAX_SERVER_DOWNTIME = 600

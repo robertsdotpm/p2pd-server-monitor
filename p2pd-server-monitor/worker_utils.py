@@ -23,7 +23,7 @@ async def validate_stun_server(ip, port, pipe, mode, cip=None, cport=None):
             reply = await stun_client.get_change_port_reply((ip, cport), pipe)
             
 
-        # Reply from different IP only.
+        # Reply from different IP:port only.
         if cip is not None and cport is not None:
             print("change ip:port", cip, ":", cport)
             reply = await stun_client.get_change_tup_reply((cip, cport), pipe)
@@ -63,6 +63,8 @@ async def validate_rfc3489_stun_server(af, proto, nic, primary_tup, secondary_tu
         (primary_tup[0], primary_tup[1], secondary_tup[0], secondary_tup[2],),
     ]
 
+    print("infos = ")
+    print(infos)
 
     route = nic.route(af)
     pipe = await pipe_open(proto, route=route)

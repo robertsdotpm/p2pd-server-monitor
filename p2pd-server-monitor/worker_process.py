@@ -26,9 +26,6 @@ async def service_worker(nic, groups):
         print("stun inside change type")
 
         # Validates the relationship between 4 stun servers.
-        groups = list(reversed(groups))
-        print(groups)
-        print()
         await validate_rfc3489_stun_server(
             af,
             proto,
@@ -64,9 +61,13 @@ async def worker_loop():
             await asyncio.sleep(5)
             continue
         else:
+            print(resp.out)
             groups = json.loads(to_s(resp.out))
 
+        f = lambda r: r["id"]
+        groups = sorted(groups, key=f)
         print(groups)
+
 
         # If there's no work -- sleep and continue.
         if not len(groups):
