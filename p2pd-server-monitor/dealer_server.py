@@ -46,10 +46,8 @@ async def get_work(stack_type: int = DUEL_STACK):
             status_entries = [dict(r) for r in await cursor.fetchall()]
 
         current_time = int(time.time())
-
         for status_entry in status_entries:
             status_entry["status_id"] = status_entry["id"]
-
             group_records = []
 
             # Step 2a: if this status row points to a service, load the whole service group + status
@@ -98,16 +96,15 @@ async def get_work(stack_type: int = DUEL_STACK):
             allocatable_records = []
             for record in group_records:
                 elapsed_since_last_status = current_time - (record["last_status"] or 0)
-
                 if record["status"] == STATUS_DEALT:
                     if elapsed_since_last_status >= WORKER_TIMEOUT:
                         record["status"] = STATUS_AVAILABLE
                     else:
-                        # Everthing in a group list needs to be allocated at once.
+                        # Everthing in a group needs to be allocated at once.
                         break
 
                 if elapsed_since_last_status < MONITOR_FREQUENCY:
-                    continue
+                    break
 
                 if record["status"] == STATUS_AVAILABLE:
                     allocatable_records.append(record)
@@ -121,7 +118,6 @@ async def get_work(stack_type: int = DUEL_STACK):
                 return allocatable_records
 
     return []
-
 
 # TODO change to post later.
 @app.get("/complete")
