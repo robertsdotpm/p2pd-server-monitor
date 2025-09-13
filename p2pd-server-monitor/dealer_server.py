@@ -16,6 +16,7 @@ avoid having all the checks occur at the same time even if the threshold is met
 
 -- test code to import an ip into imports table
     -- work code for that to discover server
+    -- insert results for discovery
 
 -- then actually process all ips and service types to import for the DB (boring)
 -- write unit tests
@@ -342,6 +343,15 @@ async def update_alias(alias_id: int, ip: str):
 
     return [alias_id]
 
+@app.get("/insert")
+async def insert_service(service_type: int, af: int, proto: int, ip: str, port: int, user: any, password: any, group: int):
+    sql  = "INSERT INTO services (type, af, proto, ip, port, user, pass, group)"
+    sql += "(?, ?, ?, ?, ?, ?, ?, ?)"
+    async with aiosqlite.connect(DB_NAME) as db:
+        params = (service_type, af, proto, ip, port, user, password, group,)
+        async with db.execute(sql, params) as cursor:
+            await db.commit()
+            return cusor.lastrowid
 
 # Just for testing.
 @app.get("/freshdb")
